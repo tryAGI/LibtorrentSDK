@@ -253,49 +253,49 @@ import Foundation
             self.dynamicLibraryHandle = dynamicLibraryHandle
             self.shouldCloseDynamicLibrary = shouldCloseDynamicLibrary
             self.create = try Self.loadSymbol(
-                "adv_libtorrent_session_create",
+                "tryagi_libtorrent_session_create",
                 from: dynamicLibraryHandle,
                 missingSymbols: &missingSymbols,
                 as: NativeCreate.self
             )
             self.destroy = try Self.loadSymbol(
-                "adv_libtorrent_session_destroy",
+                "tryagi_libtorrent_session_destroy",
                 from: dynamicLibraryHandle,
                 missingSymbols: &missingSymbols,
                 as: NativeDestroy.self
             )
             self.start = try Self.loadSymbol(
-                "adv_libtorrent_job_start",
+                "tryagi_libtorrent_job_start",
                 from: dynamicLibraryHandle,
                 missingSymbols: &missingSymbols,
                 as: NativeJSONCommand.self
             )
             self.applySelection = try Self.loadSymbol(
-                "adv_libtorrent_job_apply_selection",
+                "tryagi_libtorrent_job_apply_selection",
                 from: dynamicLibraryHandle,
                 missingSymbols: &missingSymbols,
                 as: NativeJSONCommand.self
             )
             self.pause = try Self.loadSymbol(
-                "adv_libtorrent_job_pause",
+                "tryagi_libtorrent_job_pause",
                 from: dynamicLibraryHandle,
                 missingSymbols: &missingSymbols,
                 as: NativeJSONCommand.self
             )
             self.resume = try Self.loadSymbol(
-                "adv_libtorrent_job_resume",
+                "tryagi_libtorrent_job_resume",
                 from: dynamicLibraryHandle,
                 missingSymbols: &missingSymbols,
                 as: NativeJSONCommand.self
             )
             self.cancel = try Self.loadSymbol(
-                "adv_libtorrent_job_cancel",
+                "tryagi_libtorrent_job_cancel",
                 from: dynamicLibraryHandle,
                 missingSymbols: &missingSymbols,
                 as: NativeJSONCommand.self
             )
             self.lastError = try Self.loadSymbol(
-                "adv_libtorrent_last_error",
+                "tryagi_libtorrent_last_error",
                 from: dynamicLibraryHandle,
                 missingSymbols: &missingSymbols,
                 as: NativeLastError.self

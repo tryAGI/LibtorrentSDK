@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(LibtorrentNative VERSION 0.1.0 LANGUAGES CXX)
+project(LibtorrentNative VERSION 0.2.0 LANGUAGES CXX)
 
 if(NOT DEFINED LIBTORRENT_SOURCE_DIR)
     message(FATAL_ERROR "LIBTORRENT_SOURCE_DIR must point to a libtorrent source checkout.")
@@ -44,10 +44,10 @@ target_link_libraries(LibtorrentNative
 set_target_properties(LibtorrentNative PROPERTIES
     FRAMEWORK TRUE
     FRAMEWORK_VERSION A
-    MACOSX_FRAMEWORK_IDENTIFIER onl.advantage.LibtorrentNative
+    MACOSX_FRAMEWORK_IDENTIFIER io.github.tryagi.libtorrent-native
     PUBLIC_HEADER include/LibtorrentNative.h
     XCODE_ATTRIBUTE_BUILD_LIBRARY_FOR_DISTRIBUTION YES
     XCODE_ATTRIBUTE_DEFINES_MODULE YES
-    XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER onl.advantage.LibtorrentNative
+    XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER io.github.tryagi.libtorrent-native
     XCODE_ATTRIBUTE_SKIP_INSTALL NO
 )

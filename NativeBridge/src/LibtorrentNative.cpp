@@ -250,7 +250,7 @@ lt::settings_pack make_settings() {
 
 class NativeSession {
 public:
-    NativeSession(adv_libtorrent_event_callback_t callback, void *context)
+    NativeSession(tryagi_libtorrent_event_callback_t callback, void *context)
         : callback_(callback),
           context_(context),
           session_(make_settings()),
@@ -448,7 +448,7 @@ private:
         callback_(payload.c_str(), context_);
     }
 
-    adv_libtorrent_event_callback_t callback_;
+    tryagi_libtorrent_event_callback_t callback_;
     void *context_;
     lt::session session_;
     std::atomic_bool stopping_{false};
@@ -463,8 +463,8 @@ NativeSession *as_session(void *session) {
 }
 } // namespace
 
-int adv_libtorrent_session_create(
-    adv_libtorrent_event_callback_t callback,
+int tryagi_libtorrent_session_create(
+    tryagi_libtorrent_event_callback_t callback,
     void *context,
     void **session
 ) {
@@ -481,36 +481,36 @@ int adv_libtorrent_session_create(
     }
 }
 
-void adv_libtorrent_session_destroy(void *session) {
+void tryagi_libtorrent_session_destroy(void *session) {
     delete as_session(session);
 }
 
-int adv_libtorrent_job_start(void *session, const char *json) {
+int tryagi_libtorrent_job_start(void *session, const char *json) {
     auto *native_session = as_session(session);
     return native_session == nullptr ? -1 : native_session->start(json);
 }
 
-int adv_libtorrent_job_apply_selection(void *session, const char *json) {
+int tryagi_libtorrent_job_apply_selection(void *session, const char *json) {
     auto *native_session = as_session(session);
     return native_session == nullptr ? -1 : native_session->apply_selection(json);
 }
 
-int adv_libtorrent_job_pause(void *session, const char *json) {
+int tryagi_libtorrent_job_pause(void *session, const char *json) {
     auto *native_session = as_session(session);
     return native_session == nullptr ? -1 : native_session->pause(json);
 }
 
-int adv_libtorrent_job_resume(void *session, const char *json) {
+int tryagi_libtorrent_job_resume(void *session, const char *json) {
     auto *native_session = as_session(session);
     return native_session == nullptr ? -1 : native_session->resume(json);
 }
 
-int adv_libtorrent_job_cancel(void *session, const char *json) {
+int tryagi_libtorrent_job_cancel(void *session, const char *json) {
     auto *native_session = as_session(session);
     return native_session == nullptr ? -1 : native_session->cancel(json);
 }
 
-const char *adv_libtorrent_last_error(void *session) {
+const char *tryagi_libtorrent_last_error(void *session) {
     auto *native_session = as_session(session);
     return native_session == nullptr ? nullptr : native_session->last_error();
 }

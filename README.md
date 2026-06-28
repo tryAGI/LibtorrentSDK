@@ -11,10 +11,15 @@ exercise the Swift ABI wrapper through in-process fake C symbols.
 ## Usage
 
 ```swift
-.package(url: "https://github.com/tryAGI/LibtorrentSDK", exact: "0.1.0")
+.package(url: "https://github.com/tryAGI/LibtorrentSDK", exact: "0.2.0")
 ```
 
 ## Refreshing LibtorrentNative.xcframework
+
+Use the manual **Release XCFramework** GitHub Actions workflow for normal binary
+refreshes. It installs the native build prerequisites, rebuilds
+`vendor/LibtorrentNative.xcframework`, zips the framework as the archive root,
+computes the SwiftPM checksum, and publishes the release asset.
 
 Refresh the binary only when the C ABI bridge changes, the pinned libtorrent ref
 changes, or Xcode starts rejecting the existing binary slice.
@@ -33,7 +38,7 @@ Release artifacts must be zipped with the XCFramework directory as the archive
 root:
 
 ```bash
-ditto -c -k --sequesterRsrc --keepParent LibtorrentNative.xcframework LibtorrentNative.xcframework.zip
+ditto -c -k --sequesterRsrc --keepParent vendor/LibtorrentNative.xcframework LibtorrentNative.xcframework.zip
 swift package compute-checksum LibtorrentNative.xcframework.zip
 ```
 
@@ -46,25 +51,25 @@ xcrun lipo -info vendor/LibtorrentNative.xcframework/ios-arm64_x86_64-simulator/
 
 ## Native ABI
 
-The `adv_libtorrent_*` symbol prefix is retained for binary compatibility with
-the extracted Advantage implementation.
+The native bridge uses a package-owned `tryagi_libtorrent_*` symbol prefix and
+the `io.github.tryagi.libtorrent-native` framework bundle identifier.
 
 ```c
-typedef void (*adv_libtorrent_event_callback_t)(const char *json, void *context);
+typedef void (*tryagi_libtorrent_event_callback_t)(const char *json, void *context);
 
-int adv_libtorrent_session_create(
-    adv_libtorrent_event_callback_t callback,
+int tryagi_libtorrent_session_create(
+    tryagi_libtorrent_event_callback_t callback,
     void *context,
     void **session
 );
 
-void adv_libtorrent_session_destroy(void *session);
-int adv_libtorrent_job_start(void *session, const char *json);
-int adv_libtorrent_job_apply_selection(void *session, const char *json);
-int adv_libtorrent_job_pause(void *session, const char *json);
-int adv_libtorrent_job_resume(void *session, const char *json);
-int adv_libtorrent_job_cancel(void *session, const char *json);
-const char *adv_libtorrent_last_error(void *session);
+void tryagi_libtorrent_session_destroy(void *session);
+int tryagi_libtorrent_job_start(void *session, const char *json);
+int tryagi_libtorrent_job_apply_selection(void *session, const char *json);
+int tryagi_libtorrent_job_pause(void *session, const char *json);
+int tryagi_libtorrent_job_resume(void *session, const char *json);
+int tryagi_libtorrent_job_cancel(void *session, const char *json);
+const char *tryagi_libtorrent_last_error(void *session);
 ```
 
 Requests are UTF-8 JSON encoded from the Swift `LibtorrentJobInput`,

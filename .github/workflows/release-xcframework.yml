@@ -1,0 +1,119 @@
+name: Release XCFramework
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create or update, for example v0.2.0"
+        required: true
+        default: "v0.2.0"
+      libtorrent_ref:
+        description: "libtorrent git tag or SHA"
+        required: true
+        default: "v2.0.13"
+      draft:
+        description: "Create a draft release when the tag does not exist"
+        required: true
+        type: boolean
+        default: true
+      prerelease:
+        description: "Mark the release as a prerelease"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish LibtorrentNative.xcframework
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v4
+
+      - name: Install native dependencies
+        run: brew install boost cmake
+
+      - name: Build XCFramework
+        env:
+          LIBTORRENT_REF: ${{ inputs.libtorrent_ref }}
+        run: bash scripts/build-libtorrent-native-xcframework.sh
+
+      - name: Package XCFramework
+        id: package
+        run: |
+          set -euo pipefail
+
+          framework_name="LibtorrentNative.xcframework"
+          framework_path="vendor/$framework_name"
+          zip_name="$framework_name.zip"
+          zip_path="$PWD/artifacts/$zip_name"
+
+          if [[ ! -d "$framework_path" ]]; then
+            echo "Missing $framework_path" >&2
+            exit 1
+          fi
+
+          rm -rf artifacts
+          mkdir -p artifacts
+          temp_dir="$(mktemp -d)"
+          cp -R "$framework_path" "$temp_dir/$framework_name"
+
+          pushd "$temp_dir" >/dev/null
+          ditto -c -k --sequesterRsrc --keepParent "$framework_name" "$zip_path"
+          popd >/dev/null
+
+          checksum="$(swift package compute-checksum "$zip_path")"
+          {
+            echo "zip_path=$zip_path"
+            echo "zip_name=$zip_name"
+            echo "checksum=$checksum"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.zip_name }}
+          path: ${{ steps.package.outputs.zip_path }}
+          if-no-files-found: error
+
+      - name: Publish GitHub release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          DRAFT: ${{ inputs.draft }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          ZIP_PATH: ${{ steps.package.outputs.zip_path }}
+          CHECKSUM: ${{ steps.package.outputs.checksum }}
+        run: |
+          set -euo pipefail
+
+          cat > release-notes.md <<EOF
+          ## SwiftPM binary target
+
+          \`\`\`swift
+          .binaryTarget(
+              name: "LibtorrentNative",
+              url: "https://github.com/tryAGI/LibtorrentSDK/releases/download/$TAG/LibtorrentNative.xcframework.zip",
+              checksum: "$CHECKSUM"
+          )
+          \`\`\`
+          EOF
+
+          release_args=(--title "$TAG" --notes-file release-notes.md --target "$GITHUB_SHA")
+          if [[ "$DRAFT" == "true" ]]; then
+            release_args+=(--draft)
+          fi
+          if [[ "$PRERELEASE" == "true" ]]; then
+            release_args+=(--prerelease)
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TAG" --notes-file release-notes.md
+            gh release upload "$TAG" "$ZIP_PATH" --clobber
+          else
+            gh release create "$TAG" "$ZIP_PATH" "${release_args[@]}"
+          fi
