@@ -11,8 +11,13 @@ exercise the Swift ABI wrapper through in-process fake C symbols.
 ## Usage
 
 ```swift
-.package(url: "https://github.com/tryAGI/LibtorrentSDK", exact: "0.2.0")
+.package(url: "https://github.com/tryAGI/LibtorrentSDK", exact: "0.2.1")
 ```
+
+Use `LibtorrentRateLimits` on `LibtorrentJobInput` to constrain native
+libtorrent transfer rates. `nil` leaves that direction unlimited. Libtorrent
+treats `0` as unlimited, so `LibtorrentRateLimits.mobileDownloadOnly` uses a
+one-byte-per-second upload cap for mobile download-focused sessions.
 
 ## Refreshing LibtorrentNative.xcframework
 
@@ -73,8 +78,8 @@ const char *tryagi_libtorrent_last_error(void *session);
 ```
 
 Requests are UTF-8 JSON encoded from the Swift `LibtorrentJobInput`,
-`LibtorrentFileSelection`, and job control models. Events sent to the callback
-must use this envelope:
+`LibtorrentRateLimits`, `LibtorrentFileSelection`, and job control models.
+Events sent to the callback must use this envelope:
 
 ```json
 {

@@ -30,20 +30,40 @@ public struct LibtorrentJobInput: Sendable, Equatable, Codable {
     public let torrentData: Data?
     public let torrentFileName: String?
     public let downloadDirectory: URL
+    public let rateLimits: LibtorrentRateLimits?
 
     public init(
         jobId: UUID,
         magnetUri: String? = nil,
         torrentData: Data? = nil,
         torrentFileName: String? = nil,
-        downloadDirectory: URL
+        downloadDirectory: URL,
+        rateLimits: LibtorrentRateLimits? = nil
     ) {
         self.jobId = jobId
         self.magnetUri = magnetUri
         self.torrentData = torrentData
         self.torrentFileName = torrentFileName
         self.downloadDirectory = downloadDirectory
+        self.rateLimits = rateLimits
     }
+}
+
+public struct LibtorrentRateLimits: Sendable, Equatable, Codable {
+    public let downloadBytesPerSecond: Int?
+    public let uploadBytesPerSecond: Int?
+
+    public init(
+        downloadBytesPerSecond: Int? = nil,
+        uploadBytesPerSecond: Int? = nil
+    ) {
+        self.downloadBytesPerSecond = downloadBytesPerSecond
+        self.uploadBytesPerSecond = uploadBytesPerSecond
+    }
+
+    /// Libtorrent treats zero as unlimited, so use a one-byte cap for
+    /// mobile sessions that should not participate in meaningful uploading.
+    public static let mobileDownloadOnly = LibtorrentRateLimits(uploadBytesPerSecond: 1)
 }
 
 public struct LibtorrentFileSelection: Sendable, Equatable, Codable {

@@ -15,6 +15,7 @@
 #include <cctype>
 #include <cstdint>
 #include <iomanip>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -33,6 +34,8 @@ struct StartRequest {
     std::string magnet_uri;
     std::string torrent_data_base64;
     std::string download_directory;
+    std::optional<long long> download_rate_limit;
+    std::optional<long long> upload_rate_limit;
 };
 
 struct JobState {
@@ -141,6 +144,42 @@ std::optional<std::string> extract_json_string(const std::string &json, const st
     return std::nullopt;
 }
 
+std::optional<long long> extract_json_int(const std::string &json, const std::string &key) {
+    const std::string needle = "\"" + key + "\"";
+    const auto key_position = json.find(needle);
+    if (key_position == std::string::npos) {
+        return std::nullopt;
+    }
+
+    auto cursor = json.find(':', key_position + needle.size());
+    if (cursor == std::string::npos) {
+        return std::nullopt;
+    }
+
+    ++cursor;
+    while (cursor < json.size() && std::isspace(static_cast<unsigned char>(json[cursor]))) {
+        ++cursor;
+    }
+
+    const auto start = cursor;
+    if (cursor < json.size() && json[cursor] == '-') {
+        ++cursor;
+    }
+    while (cursor < json.size() && std::isdigit(static_cast<unsigned char>(json[cursor]))) {
+        ++cursor;
+    }
+
+    if (cursor == start || (cursor == start + 1 && json[start] == '-')) {
+        return std::nullopt;
+    }
+
+    try {
+        return std::stoll(json.substr(start, cursor - start));
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
 std::string percent_decode(std::string value) {
     std::string decoded;
     decoded.reserve(value.size());
@@ -225,6 +264,8 @@ StartRequest parse_start_request(const char *json) {
     request.download_directory = file_url_to_path(
         extract_json_string(request_json, "downloadDirectory").value_or("")
     );
+    request.download_rate_limit = extract_json_int(request_json, "downloadBytesPerSecond");
+    request.upload_rate_limit = extract_json_int(request_json, "uploadBytesPerSecond");
     return request;
 }
 
@@ -246,6 +287,25 @@ lt::settings_pack make_settings() {
     settings.set_bool(lt::settings_pack::enable_upnp, true);
     settings.set_bool(lt::settings_pack::enable_natpmp, true);
     return settings;
+}
+
+int clamp_rate_limit(long long value) {
+    if (value <= 0) {
+        return 0;
+    }
+    if (value > std::numeric_limits<int>::max()) {
+        return std::numeric_limits<int>::max();
+    }
+    return static_cast<int>(value);
+}
+
+void apply_rate_limits(lt::torrent_handle &handle, const StartRequest &request) {
+    if (request.download_rate_limit.has_value()) {
+        handle.set_download_limit(clamp_rate_limit(*request.download_rate_limit));
+    }
+    if (request.upload_rate_limit.has_value()) {
+        handle.set_upload_limit(clamp_rate_limit(*request.upload_rate_limit));
+    }
 }
 
 class NativeSession {
@@ -307,6 +367,7 @@ public:
             if (error) {
                 return fail("failed to add torrent: " + error.message());
             }
+            apply_rate_limits(handle, request);
 
             {
                 std::lock_guard<std::mutex> guard(lock_);

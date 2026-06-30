@@ -22,7 +22,8 @@ import XCTest
                 input: LibtorrentJobInput(
                     jobId: jobId,
                     magnetUri: "magnet:?xt=urn:btih:abcdef0123456789",
-                    downloadDirectory: URL(fileURLWithPath: "/tmp/advantage-libtorrent-smoke", isDirectory: true)
+                    downloadDirectory: URL(fileURLWithPath: "/tmp/advantage-libtorrent-smoke", isDirectory: true),
+                    rateLimits: .mobileDownloadOnly
                 ),
                 selection: LibtorrentFileSelection(all: true, primaryFileIndex: 0)
             ) { event in
@@ -49,6 +50,10 @@ import XCTest
             XCTAssertTrue(
                 snapshot.lastStartRequest?.contains("\"all\":true") == true,
                 "Start request should include the selected-file policy."
+            )
+            XCTAssertTrue(
+                snapshot.lastStartRequest?.contains("\"uploadBytesPerSecond\":1") == true,
+                "Start request should include the mobile upload cap."
             )
         }
 
