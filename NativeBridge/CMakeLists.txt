@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(LibtorrentNative VERSION 0.2.0 LANGUAGES CXX)
+project(LibtorrentNative VERSION 0.2.2 LANGUAGES CXX)
 
 if(NOT DEFINED LIBTORRENT_SOURCE_DIR)
     message(FATAL_ERROR "LIBTORRENT_SOURCE_DIR must point to a libtorrent source checkout.")

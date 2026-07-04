@@ -11,7 +11,7 @@ exercise the Swift ABI wrapper through in-process fake C symbols.
 ## Usage
 
 ```swift
-.package(url: "https://github.com/tryAGI/LibtorrentSDK", exact: "0.2.1")
+.package(url: "https://github.com/tryAGI/LibtorrentSDK", exact: "0.2.2")
 ```
 
 Use `LibtorrentRateLimits` on `LibtorrentJobInput` to constrain native

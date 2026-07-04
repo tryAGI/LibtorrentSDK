@@ -3,6 +3,8 @@
 #include <libtorrent/add_torrent_params.hpp>
 #include <libtorrent/bdecode.hpp>
 #include <libtorrent/error_code.hpp>
+#include <libtorrent/file_storage.hpp>
+#include <libtorrent/hex.hpp>
 #include <libtorrent/magnet_uri.hpp>
 #include <libtorrent/session.hpp>
 #include <libtorrent/settings_pack.hpp>
@@ -10,6 +12,7 @@
 #include <libtorrent/torrent_info.hpp>
 #include <libtorrent/torrent_status.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cctype>
@@ -308,6 +311,52 @@ void apply_rate_limits(lt::torrent_handle &handle, const StartRequest &request) 
     }
 }
 
+void emit_info_hash_json(std::ostringstream &json, const lt::torrent_handle &handle) {
+    const auto hashes = handle.info_hashes();
+    if (!hashes.has_v1() && !hashes.has_v2()) {
+        json << "null";
+        return;
+    }
+
+    const auto bytes = hashes.get_best().to_string();
+    json << "\"" << json_escape(lt::aux::to_hex(bytes)) << "\"";
+}
+
+void emit_files_json(std::ostringstream &json, const lt::torrent_handle &handle) {
+    const auto torrent_info = handle.torrent_file();
+    if (!torrent_info) {
+        json << "[]";
+        return;
+    }
+
+    const auto &files = torrent_info->files();
+    std::vector<std::int64_t> progress;
+    handle.file_progress(progress, lt::torrent_handle::piece_granularity);
+
+    json << "[";
+    for (int index = 0; index < files.num_files(); ++index) {
+        if (index > 0) {
+            json << ",";
+        }
+
+        const lt::file_index_t file_index{index};
+        const std::int64_t size = files.file_size(file_index);
+        const std::int64_t completed = index < static_cast<int>(progress.size()) ? progress[index] : 0;
+        const double percent = size > 0
+            ? std::clamp((static_cast<double>(completed) / static_cast<double>(size)) * 100.0, 0.0, 100.0)
+            : 0.0;
+
+        json << "{";
+        json << "\"id\":" << index << ",";
+        json << "\"path\":\"" << json_escape(files.file_path(file_index)) << "\",";
+        json << "\"sizeBytes\":" << size << ",";
+        json << "\"bytesCompleted\":" << completed << ",";
+        json << "\"percentComplete\":" << percent;
+        json << "}";
+    }
+    json << "]";
+}
+
 class NativeSession {
 public:
     NativeSession(tryagi_libtorrent_event_callback_t callback, void *context)
@@ -502,7 +551,11 @@ private:
         json << "\"percentComplete\":" << percent << ",";
         json << "\"bytesPerSecond\":" << status.download_rate << ",";
         json << "\"peerCount\":" << status.num_peers << ",";
-        json << "\"files\":[]";
+        json << "\"infoHash\":";
+        emit_info_hash_json(json, handle);
+        json << ",";
+        json << "\"files\":";
+        emit_files_json(json, handle);
         json << "}}";
 
         const auto payload = json.str();

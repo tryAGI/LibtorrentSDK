@@ -35,8 +35,13 @@ import XCTest
             case let .progress(progress):
                 XCTAssertEqual(progress.jobId, jobId)
                 XCTAssertEqual(progress.status, "downloading")
+                XCTAssertEqual(progress.infoHash, "abcdef0123456789abcdef0123456789abcdef01")
                 XCTAssertEqual(progress.bytesCompleted, 4)
                 XCTAssertEqual(progress.totalBytes, 8)
+                XCTAssertEqual(progress.files.count, 1)
+                XCTAssertEqual(progress.files.first?.path, "sample.mp4")
+                XCTAssertEqual(progress.files.first?.sizeBytes, 8)
+                XCTAssertEqual(progress.files.first?.bytesCompleted, 4)
             default:
                 XCTFail("Expected progress event, received \(event).")
             }
@@ -263,7 +268,7 @@ import XCTest
 
         private func emitProgress(jobId: String) {
             let json = """
-            {"type":"progress","progress":{"jobId":"\(jobId)","status":"downloading","bytesCompleted":4,"totalBytes":8,"percentComplete":50,"files":[]}}
+            {"type":"progress","progress":{"jobId":"\(jobId)","status":"downloading","infoHash":"abcdef0123456789abcdef0123456789abcdef01","bytesCompleted":4,"totalBytes":8,"percentComplete":50,"files":[{"id":0,"path":"sample.mp4","sizeBytes":8,"bytesCompleted":4,"percentComplete":50}]}}
             """
 
             let target = locked {
