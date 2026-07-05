@@ -2,6 +2,7 @@
 
 #include <libtorrent/add_torrent_params.hpp>
 #include <libtorrent/bdecode.hpp>
+#include <libtorrent/download_priority.hpp>
 #include <libtorrent/error_code.hpp>
 #include <libtorrent/file_storage.hpp>
 #include <libtorrent/hex.hpp>
@@ -32,6 +33,13 @@
 namespace {
 namespace lt = libtorrent;
 
+struct FileSelection {
+    bool all = false;
+    std::vector<int> file_indexes;
+    std::vector<std::string> globs;
+    std::optional<int> primary_file_index;
+};
+
 struct StartRequest {
     std::string job_id;
     std::string magnet_uri;
@@ -39,11 +47,13 @@ struct StartRequest {
     std::string download_directory;
     std::optional<long long> download_rate_limit;
     std::optional<long long> upload_rate_limit;
+    std::optional<FileSelection> selection;
 };
 
 struct JobState {
     std::string job_id;
     lt::torrent_handle handle;
+    std::optional<FileSelection> pending_selection;
     bool completed_sent = false;
 };
 
@@ -183,6 +193,211 @@ std::optional<long long> extract_json_int(const std::string &json, const std::st
     }
 }
 
+std::optional<bool> extract_json_bool(const std::string &json, const std::string &key) {
+    const std::string needle = "\"" + key + "\"";
+    const auto key_position = json.find(needle);
+    if (key_position == std::string::npos) {
+        return std::nullopt;
+    }
+
+    auto cursor = json.find(':', key_position + needle.size());
+    if (cursor == std::string::npos) {
+        return std::nullopt;
+    }
+
+    ++cursor;
+    while (cursor < json.size() && std::isspace(static_cast<unsigned char>(json[cursor]))) {
+        ++cursor;
+    }
+
+    if (json.compare(cursor, 4, "true") == 0) {
+        return true;
+    }
+    if (json.compare(cursor, 5, "false") == 0) {
+        return false;
+    }
+    return std::nullopt;
+}
+
+std::optional<std::string> extract_json_array_body(const std::string &json, const std::string &key) {
+    const std::string needle = "\"" + key + "\"";
+    const auto key_position = json.find(needle);
+    if (key_position == std::string::npos) {
+        return std::nullopt;
+    }
+
+    auto cursor = json.find(':', key_position + needle.size());
+    if (cursor == std::string::npos) {
+        return std::nullopt;
+    }
+
+    cursor = json.find('[', cursor);
+    if (cursor == std::string::npos) {
+        return std::nullopt;
+    }
+
+    const auto start = cursor + 1;
+    int depth = 1;
+    bool in_string = false;
+    bool escaping = false;
+    ++cursor;
+    while (cursor < json.size()) {
+        const char character = json[cursor];
+        if (escaping) {
+            escaping = false;
+        } else if (character == '\\' && in_string) {
+            escaping = true;
+        } else if (character == '"') {
+            in_string = !in_string;
+        } else if (!in_string && character == '[') {
+            ++depth;
+        } else if (!in_string && character == ']') {
+            --depth;
+            if (depth == 0) {
+                return json.substr(start, cursor - start);
+            }
+        }
+        ++cursor;
+    }
+
+    return std::nullopt;
+}
+
+std::vector<int> extract_json_int_array(const std::string &json, const std::string &key) {
+    const auto body = extract_json_array_body(json, key);
+    if (!body.has_value()) {
+        return {};
+    }
+
+    std::vector<int> values;
+    std::size_t cursor = 0;
+    while (cursor < body->size()) {
+        while (cursor < body->size() && !std::isdigit(static_cast<unsigned char>((*body)[cursor])) && (*body)[cursor] != '-') {
+            ++cursor;
+        }
+        if (cursor >= body->size()) {
+            break;
+        }
+
+        const auto start = cursor;
+        if ((*body)[cursor] == '-') {
+            ++cursor;
+        }
+        while (cursor < body->size() && std::isdigit(static_cast<unsigned char>((*body)[cursor]))) {
+            ++cursor;
+        }
+
+        try {
+            const auto value = std::stoll(body->substr(start, cursor - start));
+            if (value >= 0 && value <= std::numeric_limits<int>::max()) {
+                values.push_back(static_cast<int>(value));
+            }
+        } catch (...) {
+        }
+    }
+
+    return values;
+}
+
+std::vector<std::string> extract_json_string_array(const std::string &json, const std::string &key) {
+    const auto body = extract_json_array_body(json, key);
+    if (!body.has_value()) {
+        return {};
+    }
+
+    std::vector<std::string> values;
+    std::size_t cursor = 0;
+    while (cursor < body->size()) {
+        while (cursor < body->size() && (*body)[cursor] != '"') {
+            ++cursor;
+        }
+        if (cursor >= body->size()) {
+            break;
+        }
+
+        ++cursor;
+        std::string value;
+        while (cursor < body->size()) {
+            const char character = (*body)[cursor++];
+            if (character == '"') {
+                values.push_back(value);
+                break;
+            }
+            if (character == '\\' && cursor < body->size()) {
+                const char escaped = (*body)[cursor++];
+                switch (escaped) {
+                case '"':
+                case '\\':
+                case '/':
+                    value.push_back(escaped);
+                    break;
+                case 'b':
+                    value.push_back('\b');
+                    break;
+                case 'f':
+                    value.push_back('\f');
+                    break;
+                case 'n':
+                    value.push_back('\n');
+                    break;
+                case 'r':
+                    value.push_back('\r');
+                    break;
+                case 't':
+                    value.push_back('\t');
+                    break;
+                default:
+                    value.push_back(escaped);
+                    break;
+                }
+            } else {
+                value.push_back(character);
+            }
+        }
+    }
+
+    return values;
+}
+
+std::string lowercase_ascii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+    });
+    return value;
+}
+
+bool wildcard_match(std::string pattern, std::string value) {
+    pattern = lowercase_ascii(std::move(pattern));
+    value = lowercase_ascii(std::move(value));
+
+    std::size_t pattern_index = 0;
+    std::size_t value_index = 0;
+    std::size_t star_index = std::string::npos;
+    std::size_t match_index = 0;
+
+    while (value_index < value.size()) {
+        if (pattern_index < pattern.size() &&
+            (pattern[pattern_index] == '?' || pattern[pattern_index] == value[value_index])) {
+            ++pattern_index;
+            ++value_index;
+        } else if (pattern_index < pattern.size() && pattern[pattern_index] == '*') {
+            star_index = pattern_index++;
+            match_index = value_index;
+        } else if (star_index != std::string::npos) {
+            pattern_index = star_index + 1;
+            value_index = ++match_index;
+        } else {
+            return false;
+        }
+    }
+
+    while (pattern_index < pattern.size() && pattern[pattern_index] == '*') {
+        ++pattern_index;
+    }
+
+    return pattern_index == pattern.size();
+}
+
 std::string percent_decode(std::string value) {
     std::string decoded;
     decoded.reserve(value.size());
@@ -258,6 +473,28 @@ std::vector<std::uint8_t> base64_decode(const std::string &value) {
     return output;
 }
 
+std::optional<FileSelection> parse_file_selection(const std::string &json) {
+    FileSelection selection;
+    selection.all = extract_json_bool(json, "all").value_or(false);
+    selection.file_indexes = extract_json_int_array(json, "fileIndexes");
+    selection.globs = extract_json_string_array(json, "globs");
+    if (const auto primary_file_index = extract_json_int(json, "primaryFileIndex");
+        primary_file_index.has_value() &&
+        *primary_file_index >= 0 &&
+        *primary_file_index <= std::numeric_limits<int>::max()) {
+        selection.primary_file_index = static_cast<int>(*primary_file_index);
+    }
+
+    if (!selection.all &&
+        selection.file_indexes.empty() &&
+        selection.globs.empty() &&
+        !selection.primary_file_index.has_value()) {
+        return std::nullopt;
+    }
+
+    return selection;
+}
+
 StartRequest parse_start_request(const char *json) {
     const std::string request_json = json == nullptr ? "" : json;
     StartRequest request;
@@ -269,6 +506,7 @@ StartRequest parse_start_request(const char *json) {
     );
     request.download_rate_limit = extract_json_int(request_json, "downloadBytesPerSecond");
     request.upload_rate_limit = extract_json_int(request_json, "uploadBytesPerSecond");
+    request.selection = parse_file_selection(request_json);
     return request;
 }
 
@@ -311,6 +549,79 @@ void apply_rate_limits(lt::torrent_handle &handle, const StartRequest &request) 
     }
 }
 
+void apply_rate_limits(lt::torrent_handle &handle, long long download_rate_limit, long long upload_rate_limit) {
+    handle.set_download_limit(clamp_rate_limit(download_rate_limit));
+    handle.set_upload_limit(clamp_rate_limit(upload_rate_limit));
+}
+
+bool is_file_selected_by_glob(const std::vector<std::string> &globs, const std::string &path) {
+    if (globs.empty()) {
+        return false;
+    }
+
+    const auto slash_position = path.find_last_of("/\\");
+    const auto file_name = slash_position == std::string::npos
+        ? path
+        : path.substr(slash_position + 1);
+
+    return std::any_of(globs.begin(), globs.end(), [&](const std::string &glob) {
+        return wildcard_match(glob, path) || wildcard_match(glob, file_name);
+    });
+}
+
+bool apply_file_selection(lt::torrent_handle &handle, const FileSelection &selection) {
+    const auto torrent_info = handle.torrent_file();
+    if (!torrent_info) {
+        return false;
+    }
+
+    const auto &files = torrent_info->files();
+    const auto file_count = files.num_files();
+    if (file_count <= 0) {
+        return false;
+    }
+
+    std::vector<lt::download_priority_t> priorities(
+        static_cast<std::size_t>(file_count),
+        selection.all ? lt::default_priority : lt::dont_download
+    );
+
+    for (const auto file_index : selection.file_indexes) {
+        if (file_index >= 0 && file_index < file_count) {
+            priorities[static_cast<std::size_t>(file_index)] = lt::default_priority;
+        }
+    }
+
+    for (int index = 0; index < file_count; ++index) {
+        const lt::file_index_t file_index{index};
+        if (is_file_selected_by_glob(selection.globs, files.file_path(file_index))) {
+            priorities[static_cast<std::size_t>(index)] = lt::default_priority;
+        }
+    }
+
+    if (selection.primary_file_index.has_value() &&
+        *selection.primary_file_index >= 0 &&
+        *selection.primary_file_index < file_count) {
+        priorities[static_cast<std::size_t>(*selection.primary_file_index)] = lt::default_priority;
+    }
+
+    handle.prioritize_files(priorities);
+    return true;
+}
+
+bool apply_pending_selection(lt::torrent_handle &handle, JobState &state) {
+    if (!state.pending_selection.has_value()) {
+        return true;
+    }
+
+    if (!apply_file_selection(handle, *state.pending_selection)) {
+        return false;
+    }
+
+    state.pending_selection.reset();
+    return true;
+}
+
 void emit_info_hash_json(std::ostringstream &json, const lt::torrent_handle &handle) {
     const auto hashes = handle.info_hashes();
     if (!hashes.has_v1() && !hashes.has_v2()) {
@@ -332,6 +643,7 @@ void emit_files_json(std::ostringstream &json, const lt::torrent_handle &handle)
     const auto &files = torrent_info->files();
     std::vector<std::int64_t> progress;
     handle.file_progress(progress, lt::torrent_handle::piece_granularity);
+    const auto priorities = handle.get_file_priorities();
 
     json << "[";
     for (int index = 0; index < files.num_files(); ++index) {
@@ -342,6 +654,9 @@ void emit_files_json(std::ostringstream &json, const lt::torrent_handle &handle)
         const lt::file_index_t file_index{index};
         const std::int64_t size = files.file_size(file_index);
         const std::int64_t completed = index < static_cast<int>(progress.size()) ? progress[index] : 0;
+        const bool is_selected = index >= static_cast<int>(priorities.size())
+            ? true
+            : static_cast<int>(priorities[static_cast<std::size_t>(index)]) > 0;
         const double percent = size > 0
             ? std::clamp((static_cast<double>(completed) / static_cast<double>(size)) * 100.0, 0.0, 100.0)
             : 0.0;
@@ -350,6 +665,7 @@ void emit_files_json(std::ostringstream &json, const lt::torrent_handle &handle)
         json << "\"id\":" << index << ",";
         json << "\"path\":\"" << json_escape(files.file_path(file_index)) << "\",";
         json << "\"sizeBytes\":" << size << ",";
+        json << "\"isSelected\":" << (is_selected ? "true" : "false") << ",";
         json << "\"bytesCompleted\":" << completed << ",";
         json << "\"percentComplete\":" << percent;
         json << "}";
@@ -417,10 +733,14 @@ public:
                 return fail("failed to add torrent: " + error.message());
             }
             apply_rate_limits(handle, request);
+            auto pending_selection = request.selection;
+            if (pending_selection.has_value() && apply_file_selection(handle, *pending_selection)) {
+                pending_selection.reset();
+            }
 
             {
                 std::lock_guard<std::mutex> guard(lock_);
-                jobs_[request.job_id] = JobState{request.job_id, handle, false};
+                jobs_[request.job_id] = JobState{request.job_id, handle, pending_selection, false};
             }
             emit_progress(request.job_id, handle, false);
             return 0;
@@ -434,12 +754,41 @@ public:
         if (job_id.empty()) {
             return fail("selection request is missing jobId");
         }
+        const auto selection = parse_file_selection(json);
+        if (!selection.has_value()) {
+            return fail("selection request is missing all, fileIndexes, globs, or primaryFileIndex");
+        }
 
         std::lock_guard<std::mutex> guard(lock_);
-        if (jobs_.find(job_id) == jobs_.end()) {
+        auto iterator = jobs_.find(job_id);
+        if (iterator == jobs_.end()) {
             return fail("selection request references an unknown jobId");
         }
+        iterator->second.pending_selection = selection;
+        apply_pending_selection(iterator->second.handle, iterator->second);
         return 0;
+    }
+
+    int update_rate_limits(const char *json) {
+        const std::string request_json = json == nullptr ? "" : json;
+        const auto download_rate_limit = extract_json_int(request_json, "downloadBytesPerSecond").value_or(0);
+        const auto upload_rate_limit = extract_json_int(request_json, "uploadBytesPerSecond").value_or(0);
+        return with_handle(json, [&](lt::torrent_handle &handle) {
+            apply_rate_limits(handle, download_rate_limit, upload_rate_limit);
+        });
+    }
+
+    int reannounce(const char *json) {
+        return with_handle(json, [](lt::torrent_handle &handle) {
+            handle.force_reannounce();
+        });
+    }
+
+    int refresh_peers(const char *json) {
+        return with_handle(json, [](lt::torrent_handle &handle) {
+            handle.force_reannounce();
+            handle.force_dht_announce();
+        });
     }
 
     int pause(const char *json) {
@@ -521,7 +870,8 @@ private:
             std::vector<std::pair<std::string, lt::torrent_handle>> snapshot;
             {
                 std::lock_guard<std::mutex> guard(lock_);
-                for (const auto &entry : jobs_) {
+                for (auto &entry : jobs_) {
+                    apply_pending_selection(entry.second.handle, entry.second);
                     snapshot.emplace_back(entry.first, entry.second.handle);
                 }
             }
@@ -607,6 +957,21 @@ int tryagi_libtorrent_job_start(void *session, const char *json) {
 int tryagi_libtorrent_job_apply_selection(void *session, const char *json) {
     auto *native_session = as_session(session);
     return native_session == nullptr ? -1 : native_session->apply_selection(json);
+}
+
+int tryagi_libtorrent_job_update_rate_limits(void *session, const char *json) {
+    auto *native_session = as_session(session);
+    return native_session == nullptr ? -1 : native_session->update_rate_limits(json);
+}
+
+int tryagi_libtorrent_job_reannounce(void *session, const char *json) {
+    auto *native_session = as_session(session);
+    return native_session == nullptr ? -1 : native_session->reannounce(json);
+}
+
+int tryagi_libtorrent_job_refresh_peers(void *session, const char *json) {
+    auto *native_session = as_session(session);
+    return native_session == nullptr ? -1 : native_session->refresh_peers(json);
 }
 
 int tryagi_libtorrent_job_pause(void *session, const char *json) {

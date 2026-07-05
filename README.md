@@ -11,7 +11,7 @@ exercise the Swift ABI wrapper through in-process fake C symbols.
 ## Usage
 
 ```swift
-.package(url: "https://github.com/tryAGI/LibtorrentSDK", exact: "0.2.2")
+.package(url: "https://github.com/tryAGI/LibtorrentSDK", exact: "0.2.3")
 ```
 
 Use `LibtorrentRateLimits` on `LibtorrentJobInput` to constrain native
@@ -71,6 +71,9 @@ int tryagi_libtorrent_session_create(
 void tryagi_libtorrent_session_destroy(void *session);
 int tryagi_libtorrent_job_start(void *session, const char *json);
 int tryagi_libtorrent_job_apply_selection(void *session, const char *json);
+int tryagi_libtorrent_job_update_rate_limits(void *session, const char *json);
+int tryagi_libtorrent_job_reannounce(void *session, const char *json);
+int tryagi_libtorrent_job_refresh_peers(void *session, const char *json);
 int tryagi_libtorrent_job_pause(void *session, const char *json);
 int tryagi_libtorrent_job_resume(void *session, const char *json);
 int tryagi_libtorrent_job_cancel(void *session, const char *json);

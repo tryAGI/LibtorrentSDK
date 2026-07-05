@@ -89,6 +89,7 @@ public struct LibtorrentFileInfo: Sendable, Equatable, Identifiable, Codable {
     public let id: Int
     public let path: String
     public let sizeBytes: Int64?
+    public let isSelected: Bool?
     public let bytesCompleted: Int64
     public let percentComplete: Double?
     public let localFileURL: URL?
@@ -97,6 +98,7 @@ public struct LibtorrentFileInfo: Sendable, Equatable, Identifiable, Codable {
         id: Int,
         path: String,
         sizeBytes: Int64? = nil,
+        isSelected: Bool? = nil,
         bytesCompleted: Int64 = 0,
         percentComplete: Double? = nil,
         localFileURL: URL? = nil
@@ -104,6 +106,7 @@ public struct LibtorrentFileInfo: Sendable, Equatable, Identifiable, Codable {
         self.id = id
         self.path = path
         self.sizeBytes = sizeBytes
+        self.isSelected = isSelected
         self.bytesCompleted = bytesCompleted
         self.percentComplete = percentComplete
         self.localFileURL = localFileURL
@@ -183,6 +186,9 @@ public protocol LibtorrentSession: Sendable {
     ) async throws
 
     func applySelection(jobId: UUID, selection: LibtorrentFileSelection) async throws
+    func updateRateLimits(jobId: UUID, rateLimits: LibtorrentRateLimits) async throws
+    func reannounce(jobId: UUID) async throws
+    func refreshPeers(jobId: UUID) async throws
     func pause(jobId: UUID) async throws
     func resume(jobId: UUID) async throws
     func cancel(jobId: UUID) async throws
@@ -211,6 +217,18 @@ public struct UnavailableLibtorrentSession: LibtorrentSession {
     }
 
     public func applySelection(jobId _: UUID, selection _: LibtorrentFileSelection) async throws {
+        throw LibtorrentRuntimeError.frameworkUnavailable
+    }
+
+    public func updateRateLimits(jobId _: UUID, rateLimits _: LibtorrentRateLimits) async throws {
+        throw LibtorrentRuntimeError.frameworkUnavailable
+    }
+
+    public func reannounce(jobId _: UUID) async throws {
+        throw LibtorrentRuntimeError.frameworkUnavailable
+    }
+
+    public func refreshPeers(jobId _: UUID) async throws {
         throw LibtorrentRuntimeError.frameworkUnavailable
     }
 

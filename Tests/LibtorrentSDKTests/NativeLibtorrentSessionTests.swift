@@ -70,6 +70,12 @@ import XCTest
                 jobId: jobId,
                 selection: LibtorrentFileSelection(fileIndexes: [2, 4], globs: ["*.mp3"], primaryFileIndex: 2)
             )
+            try await session.updateRateLimits(
+                jobId: jobId,
+                rateLimits: LibtorrentRateLimits(downloadBytesPerSecond: nil, uploadBytesPerSecond: 524_288)
+            )
+            try await session.reannounce(jobId: jobId)
+            try await session.refreshPeers(jobId: jobId)
             try await session.pause(jobId: jobId)
             try await session.resume(jobId: jobId)
             try await session.cancel(jobId: jobId)
@@ -78,6 +84,11 @@ import XCTest
             XCTAssertTrue(snapshot.lastSelectionRequest?.localizedCaseInsensitiveContains(jobId.uuidString) == true)
             XCTAssertTrue(snapshot.lastSelectionRequest?.contains("\"fileIndexes\":[2,4]") == true)
             XCTAssertTrue(snapshot.lastSelectionRequest?.contains("\"globs\":[\"*.mp3\"]") == true)
+            XCTAssertTrue(snapshot.lastRateLimitRequest?.localizedCaseInsensitiveContains(jobId.uuidString) == true)
+            XCTAssertTrue(snapshot.lastRateLimitRequest?.contains("\"downloadBytesPerSecond\":0") == true)
+            XCTAssertTrue(snapshot.lastRateLimitRequest?.contains("\"uploadBytesPerSecond\":524288") == true)
+            XCTAssertTrue(snapshot.lastReannounceRequest?.localizedCaseInsensitiveContains(jobId.uuidString) == true)
+            XCTAssertTrue(snapshot.lastRefreshPeersRequest?.localizedCaseInsensitiveContains(jobId.uuidString) == true)
             XCTAssertTrue(snapshot.lastPauseRequest?.localizedCaseInsensitiveContains(jobId.uuidString) == true)
             XCTAssertTrue(snapshot.lastResumeRequest?.localizedCaseInsensitiveContains(jobId.uuidString) == true)
             XCTAssertTrue(snapshot.lastCancelRequest?.localizedCaseInsensitiveContains(jobId.uuidString) == true)
@@ -91,6 +102,9 @@ import XCTest
                 destroy: destroy,
                 start: start,
                 applySelection: applySelection,
+                updateRateLimits: updateRateLimits,
+                reannounce: reannounce,
+                refreshPeers: refreshPeers,
                 pause: pause,
                 resume: resume,
                 cancel: cancel,
@@ -115,6 +129,21 @@ import XCTest
         private static let applySelection: NativeLibtorrentLibrary.NativeJSONCommand = { _, json in
             guard let json else { return -1 }
             return NativeABISmokeState.shared.recordSelection(String(cString: json))
+        }
+
+        private static let updateRateLimits: NativeLibtorrentLibrary.NativeJSONCommand = { _, json in
+            guard let json else { return -1 }
+            return NativeABISmokeState.shared.recordRateLimit(String(cString: json))
+        }
+
+        private static let reannounce: NativeLibtorrentLibrary.NativeJSONCommand = { _, json in
+            guard let json else { return -1 }
+            return NativeABISmokeState.shared.recordReannounce(String(cString: json))
+        }
+
+        private static let refreshPeers: NativeLibtorrentLibrary.NativeJSONCommand = { _, json in
+            guard let json else { return -1 }
+            return NativeABISmokeState.shared.recordRefreshPeers(String(cString: json))
         }
 
         private static let pause: NativeLibtorrentLibrary.NativeJSONCommand = { _, json in
@@ -164,6 +193,9 @@ import XCTest
         let startRequestCount: Int
         let lastStartRequest: String?
         let lastSelectionRequest: String?
+        let lastRateLimitRequest: String?
+        let lastReannounceRequest: String?
+        let lastRefreshPeersRequest: String?
         let lastPauseRequest: String?
         let lastResumeRequest: String?
         let lastCancelRequest: String?
@@ -177,6 +209,9 @@ import XCTest
         private var context: UnsafeMutableRawPointer?
         private var startRequests: [String] = []
         private var selectionRequests: [String] = []
+        private var rateLimitRequests: [String] = []
+        private var reannounceRequests: [String] = []
+        private var refreshPeersRequests: [String] = []
         private var pauseRequests: [String] = []
         private var resumeRequests: [String] = []
         private var cancelRequests: [String] = []
@@ -188,6 +223,9 @@ import XCTest
                 context = nil
                 startRequests.removeAll()
                 selectionRequests.removeAll()
+                rateLimitRequests.removeAll()
+                reannounceRequests.removeAll()
+                refreshPeersRequests.removeAll()
                 pauseRequests.removeAll()
                 resumeRequests.removeAll()
                 cancelRequests.removeAll()
@@ -228,6 +266,27 @@ import XCTest
             return 0
         }
 
+        func recordRateLimit(_ json: String) -> Int32 {
+            locked {
+                rateLimitRequests.append(json)
+            }
+            return 0
+        }
+
+        func recordReannounce(_ json: String) -> Int32 {
+            locked {
+                reannounceRequests.append(json)
+            }
+            return 0
+        }
+
+        func recordRefreshPeers(_ json: String) -> Int32 {
+            locked {
+                refreshPeersRequests.append(json)
+            }
+            return 0
+        }
+
         func recordPause(_ json: String) -> Int32 {
             locked {
                 pauseRequests.append(json)
@@ -255,6 +314,9 @@ import XCTest
                     startRequestCount: startRequests.count,
                     lastStartRequest: startRequests.last,
                     lastSelectionRequest: selectionRequests.last,
+                    lastRateLimitRequest: rateLimitRequests.last,
+                    lastReannounceRequest: reannounceRequests.last,
+                    lastRefreshPeersRequest: refreshPeersRequests.last,
                     lastPauseRequest: pauseRequests.last,
                     lastResumeRequest: resumeRequests.last,
                     lastCancelRequest: cancelRequests.last

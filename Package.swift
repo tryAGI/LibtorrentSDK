@@ -27,8 +27,8 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "LibtorrentNative",
-            url: "https://github.com/tryAGI/LibtorrentSDK/releases/download/v0.2.2/LibtorrentNative.xcframework.zip",
-            checksum: "c6f194b50156287a5a82490188e1ae2c0df2d3dd9a85592d8c87d9e0697fa584"
+            url: "https://github.com/tryAGI/LibtorrentSDK/releases/download/v0.2.3/LibtorrentNative.xcframework.zip",
+            checksum: "bb886a4b6305cf0b8d480ce7c21998b45ff8938566b4160fd78950795039ad77"
         ),
         .target(
             name: "LibtorrentSDK",

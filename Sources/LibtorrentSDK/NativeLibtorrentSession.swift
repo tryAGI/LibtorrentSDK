@@ -70,6 +70,42 @@ import Foundation
             )
         }
 
+        public func updateRateLimits(jobId: UUID, rateLimits: LibtorrentRateLimits) async throws {
+            guard let command = library.updateRateLimits else {
+                throw LibtorrentRuntimeError.missingNativeSymbol("tryagi_libtorrent_job_update_rate_limits")
+            }
+
+            try perform(
+                operation: "update_rate_limits",
+                request: NativeLibtorrentRateLimitsRequest(jobId: jobId, rateLimits: rateLimits),
+                command: command
+            )
+        }
+
+        public func reannounce(jobId: UUID) async throws {
+            guard let command = library.reannounce else {
+                throw LibtorrentRuntimeError.missingNativeSymbol("tryagi_libtorrent_job_reannounce")
+            }
+
+            try perform(
+                operation: "reannounce",
+                request: NativeLibtorrentJobControlRequest(jobId: jobId),
+                command: command
+            )
+        }
+
+        public func refreshPeers(jobId: UUID) async throws {
+            guard let command = library.refreshPeers else {
+                throw LibtorrentRuntimeError.missingNativeSymbol("tryagi_libtorrent_job_refresh_peers")
+            }
+
+            try perform(
+                operation: "refresh_peers",
+                request: NativeLibtorrentJobControlRequest(jobId: jobId),
+                command: command
+            )
+        }
+
         public func pause(jobId: UUID) async throws {
             try perform(
                 operation: "pause",
@@ -182,6 +218,9 @@ import Foundation
         let destroy: NativeDestroy
         let start: NativeJSONCommand
         let applySelection: NativeJSONCommand
+        let updateRateLimits: NativeJSONCommand?
+        let reannounce: NativeJSONCommand?
+        let refreshPeers: NativeJSONCommand?
         let pause: NativeJSONCommand
         let resume: NativeJSONCommand
         let cancel: NativeJSONCommand
@@ -195,6 +234,9 @@ import Foundation
             destroy: @escaping NativeDestroy,
             start: @escaping NativeJSONCommand,
             applySelection: @escaping NativeJSONCommand,
+            updateRateLimits: NativeJSONCommand? = nil,
+            reannounce: NativeJSONCommand? = nil,
+            refreshPeers: NativeJSONCommand? = nil,
             pause: @escaping NativeJSONCommand,
             resume: @escaping NativeJSONCommand,
             cancel: @escaping NativeJSONCommand,
@@ -206,6 +248,9 @@ import Foundation
             self.destroy = destroy
             self.start = start
             self.applySelection = applySelection
+            self.updateRateLimits = updateRateLimits
+            self.reannounce = reannounce
+            self.refreshPeers = refreshPeers
             self.pause = pause
             self.resume = resume
             self.cancel = cancel
@@ -276,6 +321,21 @@ import Foundation
                 missingSymbols: &missingSymbols,
                 as: NativeJSONCommand.self
             )
+            self.updateRateLimits = Self.loadOptionalSymbol(
+                "tryagi_libtorrent_job_update_rate_limits",
+                from: dynamicLibraryHandle,
+                as: NativeJSONCommand.self
+            )
+            self.reannounce = Self.loadOptionalSymbol(
+                "tryagi_libtorrent_job_reannounce",
+                from: dynamicLibraryHandle,
+                as: NativeJSONCommand.self
+            )
+            self.refreshPeers = Self.loadOptionalSymbol(
+                "tryagi_libtorrent_job_refresh_peers",
+                from: dynamicLibraryHandle,
+                as: NativeJSONCommand.self
+            )
             self.pause = try Self.loadSymbol(
                 "tryagi_libtorrent_job_pause",
                 from: dynamicLibraryHandle,
@@ -315,6 +375,17 @@ import Foundation
             return unsafeBitCast(symbol, to: T.self)
         }
 
+        private static func loadOptionalSymbol<T>(
+            _ name: String,
+            from handle: UnsafeMutableRawPointer,
+            as _: T.Type
+        ) -> T? {
+            guard let symbol = dlsym(handle, name) else {
+                return nil
+            }
+            return unsafeBitCast(symbol, to: T.self)
+        }
+
         private static func dynamicLibraryCandidates() -> [NativeLibtorrentDynamicLibraryCandidate] {
             var candidates: [NativeLibtorrentDynamicLibraryCandidate] = [.currentProcess]
 
@@ -344,6 +415,18 @@ import Foundation
     private struct NativeLibtorrentSelectionRequest: Encodable {
         let jobId: UUID
         let selection: LibtorrentFileSelection
+    }
+
+    private struct NativeLibtorrentRateLimitsRequest: Encodable {
+        let jobId: UUID
+        let downloadBytesPerSecond: Int
+        let uploadBytesPerSecond: Int
+
+        init(jobId: UUID, rateLimits: LibtorrentRateLimits) {
+            self.jobId = jobId
+            self.downloadBytesPerSecond = rateLimits.downloadBytesPerSecond ?? 0
+            self.uploadBytesPerSecond = rateLimits.uploadBytesPerSecond ?? 0
+        }
     }
 
     private struct NativeLibtorrentJobControlRequest: Encodable {
