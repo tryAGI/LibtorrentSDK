@@ -113,6 +113,144 @@ public struct LibtorrentFileInfo: Sendable, Equatable, Identifiable, Codable {
     }
 }
 
+/// Sanitized, live swarm information emitted by the native libtorrent bridge.
+///
+/// The bridge deliberately exposes tracker origins only. It never sends full
+/// tracker URLs, tracker response text, peer addresses, or the device's
+/// external address across the C ABI.
+public struct LibtorrentSwarmDiagnostics: Sendable, Equatable, Codable {
+    public let connectedPeers: Int?
+    public let connectedSeeds: Int?
+    public let knownPeers: Int?
+    public let knownSeeds: Int?
+    public let connectCandidates: Int?
+    public let trackerReportedSeeds: Int?
+    public let trackerReportedLeechers: Int?
+    public let nextAnnounceInSeconds: Int?
+    public let hasIncomingConnections: Bool?
+    public let trackers: [LibtorrentTrackerDiagnostics]
+    public let dht: LibtorrentDHTDiagnostics?
+    public let portMappings: [LibtorrentPortMappingDiagnostics]
+
+    public init(
+        connectedPeers: Int? = nil,
+        connectedSeeds: Int? = nil,
+        knownPeers: Int? = nil,
+        knownSeeds: Int? = nil,
+        connectCandidates: Int? = nil,
+        trackerReportedSeeds: Int? = nil,
+        trackerReportedLeechers: Int? = nil,
+        nextAnnounceInSeconds: Int? = nil,
+        hasIncomingConnections: Bool? = nil,
+        trackers: [LibtorrentTrackerDiagnostics] = [],
+        dht: LibtorrentDHTDiagnostics? = nil,
+        portMappings: [LibtorrentPortMappingDiagnostics] = []
+    ) {
+        self.connectedPeers = connectedPeers
+        self.connectedSeeds = connectedSeeds
+        self.knownPeers = knownPeers
+        self.knownSeeds = knownSeeds
+        self.connectCandidates = connectCandidates
+        self.trackerReportedSeeds = trackerReportedSeeds
+        self.trackerReportedLeechers = trackerReportedLeechers
+        self.nextAnnounceInSeconds = nextAnnounceInSeconds
+        self.hasIncomingConnections = hasIncomingConnections
+        self.trackers = trackers
+        self.dht = dht
+        self.portMappings = portMappings
+    }
+}
+
+public struct LibtorrentTrackerDiagnostics: Sendable, Equatable, Codable, Identifiable {
+    /// A scheme/host/port origin with all paths, query parameters, credentials,
+    /// and passkeys removed by the native bridge.
+    public let endpoint: String
+    public let tier: Int?
+    public let isVerified: Bool?
+    public let consecutiveFailures: Int?
+    public let isUpdating: Bool?
+    public let lastEvent: String?
+    public let lastEventAgeSeconds: Int?
+    public let lastResponsePeerCount: Int?
+    public let lastErrorCode: Int?
+
+    public var id: String { endpoint }
+
+    public init(
+        endpoint: String,
+        tier: Int? = nil,
+        isVerified: Bool? = nil,
+        consecutiveFailures: Int? = nil,
+        isUpdating: Bool? = nil,
+        lastEvent: String? = nil,
+        lastEventAgeSeconds: Int? = nil,
+        lastResponsePeerCount: Int? = nil,
+        lastErrorCode: Int? = nil
+    ) {
+        self.endpoint = endpoint
+        self.tier = tier
+        self.isVerified = isVerified
+        self.consecutiveFailures = consecutiveFailures
+        self.isUpdating = isUpdating
+        self.lastEvent = lastEvent
+        self.lastEventAgeSeconds = lastEventAgeSeconds
+        self.lastResponsePeerCount = lastResponsePeerCount
+        self.lastErrorCode = lastErrorCode
+    }
+}
+
+public struct LibtorrentDHTDiagnostics: Sendable, Equatable, Codable {
+    public let isRunning: Bool?
+    public let nodeCount: Int?
+    public let lastBootstrapAgeSeconds: Int?
+    public let lastReplyPeerCount: Int?
+    public let lastReplyAgeSeconds: Int?
+    public let lastErrorCode: Int?
+
+    public init(
+        isRunning: Bool? = nil,
+        nodeCount: Int? = nil,
+        lastBootstrapAgeSeconds: Int? = nil,
+        lastReplyPeerCount: Int? = nil,
+        lastReplyAgeSeconds: Int? = nil,
+        lastErrorCode: Int? = nil
+    ) {
+        self.isRunning = isRunning
+        self.nodeCount = nodeCount
+        self.lastBootstrapAgeSeconds = lastBootstrapAgeSeconds
+        self.lastReplyPeerCount = lastReplyPeerCount
+        self.lastReplyAgeSeconds = lastReplyAgeSeconds
+        self.lastErrorCode = lastErrorCode
+    }
+}
+
+public struct LibtorrentPortMappingDiagnostics: Sendable, Equatable, Codable, Identifiable {
+    public let mappingIndex: Int
+    public let transport: String?
+    public let protocolName: String?
+    public let status: String
+    public let lastEventAgeSeconds: Int?
+    public let lastErrorCode: Int?
+
+    public var id: Int { mappingIndex }
+
+    public init(
+        mappingIndex: Int,
+        transport: String? = nil,
+        protocolName: String? = nil,
+        status: String,
+        lastEventAgeSeconds: Int? = nil,
+        lastErrorCode: Int? = nil
+    ) {
+        self.mappingIndex = mappingIndex
+        self.transport = transport
+        self.protocolName = protocolName
+        self.status = status
+        self.lastEventAgeSeconds = lastEventAgeSeconds
+        self.lastErrorCode = lastErrorCode
+    }
+}
+
 public struct LibtorrentProgress: Sendable, Equatable, Codable {
     public let jobId: UUID
     public let status: String
@@ -123,6 +261,7 @@ public struct LibtorrentProgress: Sendable, Equatable, Codable {
     public let percentComplete: Double?
     public let bytesPerSecond: Double?
     public let peerCount: Int?
+    public let swarmDiagnostics: LibtorrentSwarmDiagnostics?
     public let files: [LibtorrentFileInfo]
 
     public init(
@@ -135,6 +274,7 @@ public struct LibtorrentProgress: Sendable, Equatable, Codable {
         percentComplete: Double? = nil,
         bytesPerSecond: Double? = nil,
         peerCount: Int? = nil,
+        swarmDiagnostics: LibtorrentSwarmDiagnostics? = nil,
         files: [LibtorrentFileInfo] = []
     ) {
         self.jobId = jobId
@@ -146,6 +286,7 @@ public struct LibtorrentProgress: Sendable, Equatable, Codable {
         self.percentComplete = percentComplete
         self.bytesPerSecond = bytesPerSecond
         self.peerCount = peerCount
+        self.swarmDiagnostics = swarmDiagnostics
         self.files = files
     }
 }

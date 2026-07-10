@@ -38,6 +38,9 @@ import Foundation
                 try require(progress.status == "downloading", "Progress event should preserve the status.")
                 try require(progress.bytesCompleted == 4, "Progress event should preserve bytesCompleted.")
                 try require(progress.totalBytes == 8, "Progress event should preserve totalBytes.")
+                try require(progress.swarmDiagnostics?.connectedPeers == 2, "Progress event should decode swarm peer counts.")
+                try require(progress.swarmDiagnostics?.trackers.first?.endpoint == "udp://tracker.example.test:6969", "Progress event should decode redacted tracker endpoints.")
+                try require(progress.swarmDiagnostics?.dht?.nodeCount == 42, "Progress event should decode DHT node counts.")
             default:
                 throw SmokeFailure("Expected progress event, received \(event).")
             }
@@ -223,7 +226,7 @@ import Foundation
 
         private func emitProgress(jobId: String) {
             let json = """
-            {"type":"progress","progress":{"jobId":"\(jobId)","status":"downloading","bytesCompleted":4,"totalBytes":8,"percentComplete":50,"files":[]}}
+            {"type":"progress","progress":{"jobId":"\(jobId)","status":"downloading","bytesCompleted":4,"totalBytes":8,"percentComplete":50,"swarmDiagnostics":{"connectedPeers":2,"connectedSeeds":1,"knownPeers":5,"knownSeeds":2,"connectCandidates":3,"trackerReportedSeeds":10,"trackerReportedLeechers":12,"nextAnnounceInSeconds":45,"hasIncomingConnections":false,"trackers":[{"endpoint":"udp://tracker.example.test:6969","tier":0,"isVerified":true,"consecutiveFailures":0,"isUpdating":false,"lastEvent":"reply","lastEventAgeSeconds":1,"lastResponsePeerCount":7,"lastErrorCode":null}],"dht":{"isRunning":true,"nodeCount":42,"lastBootstrapAgeSeconds":3,"lastReplyPeerCount":4,"lastReplyAgeSeconds":1,"lastErrorCode":null},"portMappings":[]},"files":[]}}
             """
 
             let target = locked {

@@ -1,6 +1,8 @@
 #include "LibtorrentNative.h"
 
 #include <libtorrent/add_torrent_params.hpp>
+#include <libtorrent/alert_types.hpp>
+#include <libtorrent/announce_entry.hpp>
 #include <libtorrent/bdecode.hpp>
 #include <libtorrent/download_priority.hpp>
 #include <libtorrent/error_code.hpp>
@@ -8,6 +10,7 @@
 #include <libtorrent/hex.hpp>
 #include <libtorrent/magnet_uri.hpp>
 #include <libtorrent/session.hpp>
+#include <libtorrent/session_status.hpp>
 #include <libtorrent/settings_pack.hpp>
 #include <libtorrent/torrent_handle.hpp>
 #include <libtorrent/torrent_info.hpp>
@@ -55,6 +58,32 @@ struct JobState {
     lt::torrent_handle handle;
     std::optional<FileSelection> pending_selection;
     bool completed_sent = false;
+    struct SwarmEvents {
+        struct Tracker {
+            std::string last_event;
+            std::optional<std::chrono::steady_clock::time_point> last_event_at;
+            std::optional<int> last_response_peer_count;
+            std::optional<int> last_error_code;
+        };
+
+        std::unordered_map<std::string, Tracker> trackers;
+        std::optional<std::chrono::steady_clock::time_point> last_dht_reply_at;
+        std::optional<int> last_dht_reply_peer_count;
+    } swarm_events;
+};
+
+struct PortMappingEvent {
+    std::string transport;
+    std::string protocol_name;
+    std::string status;
+    std::optional<int> last_error_code;
+    std::optional<std::chrono::steady_clock::time_point> last_event_at;
+};
+
+struct DhtSessionEvents {
+    std::optional<std::chrono::steady_clock::time_point> last_bootstrap_at;
+    std::optional<std::chrono::steady_clock::time_point> last_error_at;
+    std::optional<int> last_error_code;
 };
 
 std::string json_escape(const std::string &value) {
@@ -366,6 +395,93 @@ std::string lowercase_ascii(std::string value) {
     return value;
 }
 
+/// Returns only the tracker origin so private paths, passkeys, credentials,
+/// and query parameters never cross the native ABI boundary.
+std::string redact_tracker_endpoint(const std::string &value) {
+    const auto scheme_end = value.find("://");
+    if (scheme_end == std::string::npos || scheme_end == 0) {
+        return {};
+    }
+
+    const auto authority_start = scheme_end + 3;
+    const auto authority_end = value.find_first_of("/?#", authority_start);
+    std::string authority = value.substr(
+        authority_start,
+        authority_end == std::string::npos ? std::string::npos : authority_end - authority_start
+    );
+    const auto user_info_end = authority.rfind('@');
+    if (user_info_end != std::string::npos) {
+        authority.erase(0, user_info_end + 1);
+    }
+    if (authority.empty()) {
+        return {};
+    }
+
+    return lowercase_ascii(value.substr(0, scheme_end)) + "://" + lowercase_ascii(authority);
+}
+
+void emit_optional_int_json(std::ostringstream &json, const std::optional<int> &value) {
+    if (value.has_value()) {
+        json << *value;
+    } else {
+        json << "null";
+    }
+}
+
+void emit_optional_bool_json(std::ostringstream &json, const std::optional<bool> &value) {
+    if (value.has_value()) {
+        json << (*value ? "true" : "false");
+    } else {
+        json << "null";
+    }
+}
+
+void emit_optional_string_json(std::ostringstream &json, const std::optional<std::string> &value) {
+    if (value.has_value()) {
+        json << "\"" << json_escape(*value) << "\"";
+    } else {
+        json << "null";
+    }
+}
+
+std::optional<int> non_negative_optional(int value) {
+    return value >= 0 ? std::optional<int>(value) : std::nullopt;
+}
+
+std::optional<int> age_in_seconds(const std::optional<std::chrono::steady_clock::time_point> &time) {
+    if (!time.has_value()) {
+        return std::nullopt;
+    }
+
+    const auto elapsed = std::chrono::steady_clock::now() - *time;
+    return static_cast<int>(std::max<std::int64_t>(
+        0,
+        std::chrono::duration_cast<std::chrono::seconds>(elapsed).count()
+    ));
+}
+
+const char *portmap_transport_name(lt::portmap_transport transport) {
+    switch (transport) {
+    case lt::portmap_transport::natpmp:
+        return "nat_pmp";
+    case lt::portmap_transport::upnp:
+        return "upnp";
+    }
+    return "unknown";
+}
+
+const char *portmap_protocol_name(lt::portmap_protocol protocol) {
+    switch (protocol) {
+    case lt::portmap_protocol::tcp:
+        return "tcp";
+    case lt::portmap_protocol::udp:
+        return "udp";
+    case lt::portmap_protocol::none:
+        return "none";
+    }
+    return "unknown";
+}
+
 bool wildcard_match(std::string pattern, std::string value) {
     pattern = lowercase_ascii(std::move(pattern));
     value = lowercase_ascii(std::move(value));
@@ -522,6 +638,9 @@ lt::settings_pack make_settings() {
         lt::alert_category::error
             | lt::alert_category::storage
             | lt::alert_category::status
+            | lt::alert_category::tracker
+            | lt::alert_category::dht
+            | lt::alert_category::port_mapping
     );
     settings.set_bool(lt::settings_pack::enable_dht, true);
     settings.set_bool(lt::settings_pack::enable_lsd, true);
@@ -863,9 +982,291 @@ private:
         return -1;
     }
 
+    JobState::SwarmEvents swarm_events_for(const std::string &job_id) const {
+        std::lock_guard<std::mutex> guard(lock_);
+        const auto iterator = jobs_.find(job_id);
+        return iterator == jobs_.end() ? JobState::SwarmEvents{} : iterator->second.swarm_events;
+    }
+
+    DhtSessionEvents dht_events() const {
+        std::lock_guard<std::mutex> guard(lock_);
+        return dht_events_;
+    }
+
+    std::unordered_map<int, PortMappingEvent> port_mapping_events() const {
+        std::lock_guard<std::mutex> guard(lock_);
+        return port_mapping_events_;
+    }
+
+    void record_tracker_event(
+        const lt::tracker_alert &alert,
+        std::string event,
+        std::optional<int> response_peer_count = std::nullopt,
+        std::optional<int> error_code = std::nullopt
+    ) {
+        const std::string endpoint = redact_tracker_endpoint(alert.tracker_url());
+        if (endpoint.empty()) {
+            return;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        std::lock_guard<std::mutex> guard(lock_);
+        for (auto &entry : jobs_) {
+            if (entry.second.handle != alert.handle) {
+                continue;
+            }
+
+            auto &tracker = entry.second.swarm_events.trackers[endpoint];
+            tracker.last_event = std::move(event);
+            tracker.last_event_at = now;
+            if (response_peer_count.has_value()) {
+                tracker.last_response_peer_count = response_peer_count;
+            }
+            if (error_code.has_value()) {
+                tracker.last_error_code = error_code;
+            } else if (tracker.last_event == "reply") {
+                tracker.last_error_code.reset();
+            }
+            return;
+        }
+    }
+
+    void record_dht_reply(const lt::dht_reply_alert &alert) {
+        const auto now = std::chrono::steady_clock::now();
+        std::lock_guard<std::mutex> guard(lock_);
+        for (auto &entry : jobs_) {
+            if (entry.second.handle == alert.handle) {
+                entry.second.swarm_events.last_dht_reply_at = now;
+                entry.second.swarm_events.last_dht_reply_peer_count = alert.num_peers;
+                return;
+            }
+        }
+    }
+
+    void record_dht_bootstrap() {
+        std::lock_guard<std::mutex> guard(lock_);
+        dht_events_.last_bootstrap_at = std::chrono::steady_clock::now();
+    }
+
+    void record_dht_error(int error_code) {
+        std::lock_guard<std::mutex> guard(lock_);
+        dht_events_.last_error_at = std::chrono::steady_clock::now();
+        dht_events_.last_error_code = error_code;
+    }
+
+    void record_port_mapping_success(const lt::portmap_alert &alert) {
+        const int mapping_index = static_cast<int>(alert.mapping);
+        std::lock_guard<std::mutex> guard(lock_);
+        port_mapping_events_[mapping_index] = PortMappingEvent{
+            portmap_transport_name(alert.map_transport),
+            portmap_protocol_name(alert.map_protocol),
+            "mapped",
+            std::nullopt,
+            std::chrono::steady_clock::now(),
+        };
+    }
+
+    void record_port_mapping_error(const lt::portmap_error_alert &alert) {
+        const int mapping_index = static_cast<int>(alert.mapping);
+        std::lock_guard<std::mutex> guard(lock_);
+        port_mapping_events_[mapping_index] = PortMappingEvent{
+            portmap_transport_name(alert.map_transport),
+            "unknown",
+            "error",
+            alert.error.value(),
+            std::chrono::steady_clock::now(),
+        };
+    }
+
+    void process_alerts() {
+        std::vector<lt::alert *> alerts;
+        session_.pop_alerts(&alerts);
+
+        for (const auto *alert : alerts) {
+            if (const auto *tracker = lt::alert_cast<lt::tracker_announce_alert>(alert)) {
+                record_tracker_event(*tracker, "announce");
+            } else if (const auto *tracker = lt::alert_cast<lt::tracker_reply_alert>(alert)) {
+                record_tracker_event(*tracker, "reply", tracker->num_peers);
+            } else if (const auto *tracker = lt::alert_cast<lt::tracker_warning_alert>(alert)) {
+                record_tracker_event(*tracker, "warning");
+            } else if (const auto *tracker = lt::alert_cast<lt::tracker_error_alert>(alert)) {
+                record_tracker_event(*tracker, "error", std::nullopt, tracker->error.value());
+            } else if (const auto *reply = lt::alert_cast<lt::dht_reply_alert>(alert)) {
+                record_dht_reply(*reply);
+            } else if (lt::alert_cast<lt::dht_bootstrap_alert>(alert) != nullptr) {
+                record_dht_bootstrap();
+            } else if (const auto *error = lt::alert_cast<lt::dht_error_alert>(alert)) {
+                record_dht_error(error->error.value());
+            } else if (const auto *mapping = lt::alert_cast<lt::portmap_alert>(alert)) {
+                record_port_mapping_success(*mapping);
+            } else if (const auto *mapping = lt::alert_cast<lt::portmap_error_alert>(alert)) {
+                record_port_mapping_error(*mapping);
+            }
+        }
+    }
+
+    void emit_tracker_diagnostics_json(
+        std::ostringstream &json,
+        const lt::torrent_handle &handle,
+        const JobState::SwarmEvents &events
+    ) const {
+        struct TrackerSnapshot {
+            std::optional<int> tier;
+            std::optional<bool> is_verified;
+            std::optional<int> consecutive_failures;
+            std::optional<bool> is_updating;
+            std::optional<std::string> last_event;
+            std::optional<std::chrono::steady_clock::time_point> last_event_at;
+            std::optional<int> last_response_peer_count;
+            std::optional<int> last_error_code;
+        };
+
+        std::unordered_map<std::string, TrackerSnapshot> snapshots;
+        for (const auto &tracker : handle.trackers()) {
+            const std::string endpoint = redact_tracker_endpoint(tracker.url);
+            if (endpoint.empty()) {
+                continue;
+            }
+
+            auto &snapshot = snapshots[endpoint];
+            snapshot.tier = static_cast<int>(tracker.tier);
+            snapshot.is_verified = tracker.verified;
+
+            int failures = 0;
+            bool updating = false;
+            for (const auto &announce_endpoint : tracker.endpoints) {
+                for (const auto &announce_info : announce_endpoint.info_hashes) {
+                    failures = std::max(failures, static_cast<int>(announce_info.fails));
+                    updating = updating || announce_info.updating;
+                }
+            }
+            snapshot.consecutive_failures = failures;
+            snapshot.is_updating = updating;
+        }
+
+        for (const auto &[endpoint, event] : events.trackers) {
+            auto &snapshot = snapshots[endpoint];
+            if (!event.last_event.empty()) {
+                snapshot.last_event = event.last_event;
+            }
+            snapshot.last_event_at = event.last_event_at;
+            snapshot.last_response_peer_count = event.last_response_peer_count;
+            snapshot.last_error_code = event.last_error_code;
+        }
+
+        std::vector<std::string> endpoints;
+        endpoints.reserve(snapshots.size());
+        for (const auto &[endpoint, _] : snapshots) {
+            endpoints.push_back(endpoint);
+        }
+        std::sort(endpoints.begin(), endpoints.end());
+
+        json << "[";
+        for (std::size_t index = 0; index < endpoints.size(); ++index) {
+            if (index > 0) {
+                json << ",";
+            }
+
+            const auto &endpoint = endpoints[index];
+            const auto &snapshot = snapshots.at(endpoint);
+            json << "{\"endpoint\":\"" << json_escape(endpoint) << "\",";
+            json << "\"tier\":";
+            emit_optional_int_json(json, snapshot.tier);
+            json << ",\"isVerified\":";
+            emit_optional_bool_json(json, snapshot.is_verified);
+            json << ",\"consecutiveFailures\":";
+            emit_optional_int_json(json, snapshot.consecutive_failures);
+            json << ",\"isUpdating\":";
+            emit_optional_bool_json(json, snapshot.is_updating);
+            json << ",\"lastEvent\":";
+            emit_optional_string_json(json, snapshot.last_event);
+            json << ",\"lastEventAgeSeconds\":";
+            emit_optional_int_json(json, age_in_seconds(snapshot.last_event_at));
+            json << ",\"lastResponsePeerCount\":";
+            emit_optional_int_json(json, snapshot.last_response_peer_count);
+            json << ",\"lastErrorCode\":";
+            emit_optional_int_json(json, snapshot.last_error_code);
+            json << "}";
+        }
+        json << "]";
+    }
+
+    void emit_port_mapping_diagnostics_json(std::ostringstream &json) const {
+        const auto mappings = port_mapping_events();
+        std::vector<int> indexes;
+        indexes.reserve(mappings.size());
+        for (const auto &[index, _] : mappings) {
+            indexes.push_back(index);
+        }
+        std::sort(indexes.begin(), indexes.end());
+
+        json << "[";
+        for (std::size_t offset = 0; offset < indexes.size(); ++offset) {
+            if (offset > 0) {
+                json << ",";
+            }
+
+            const int index = indexes[offset];
+            const auto &mapping = mappings.at(index);
+            json << "{\"mappingIndex\":" << index << ",";
+            json << "\"transport\":\"" << json_escape(mapping.transport) << "\",";
+            json << "\"protocolName\":\"" << json_escape(mapping.protocol_name) << "\",";
+            json << "\"status\":\"" << json_escape(mapping.status) << "\",";
+            json << "\"lastEventAgeSeconds\":";
+            emit_optional_int_json(json, age_in_seconds(mapping.last_event_at));
+            json << ",\"lastErrorCode\":";
+            emit_optional_int_json(json, mapping.last_error_code);
+            json << "}";
+        }
+        json << "]";
+    }
+
+    void emit_swarm_diagnostics_json(
+        std::ostringstream &json,
+        const std::string &job_id,
+        const lt::torrent_handle &handle,
+        const lt::torrent_status &status
+    ) const {
+        const auto session_status = session_.status();
+        const auto events = swarm_events_for(job_id);
+        const auto dht = dht_events();
+        const auto next_announce_seconds = static_cast<int>(std::max<std::int64_t>(
+            0,
+            std::chrono::duration_cast<std::chrono::seconds>(status.next_announce).count()
+        ));
+
+        json << "{\"connectedPeers\":" << status.num_peers << ",";
+        json << "\"connectedSeeds\":" << status.num_seeds << ",";
+        json << "\"knownPeers\":" << status.list_peers << ",";
+        json << "\"knownSeeds\":" << status.list_seeds << ",";
+        json << "\"connectCandidates\":" << status.connect_candidates << ",";
+        json << "\"trackerReportedSeeds\":";
+        emit_optional_int_json(json, non_negative_optional(status.num_complete));
+        json << ",\"trackerReportedLeechers\":";
+        emit_optional_int_json(json, non_negative_optional(status.num_incomplete));
+        json << ",\"nextAnnounceInSeconds\":" << next_announce_seconds << ",";
+        json << "\"hasIncomingConnections\":" << (session_status.has_incoming_connections ? "true" : "false") << ",";
+        json << "\"trackers\":";
+        emit_tracker_diagnostics_json(json, handle, events);
+        json << ",\"dht\":{\"isRunning\":" << (session_.is_dht_running() ? "true" : "false") << ",";
+        json << "\"nodeCount\":" << std::max(0, session_status.dht_nodes) << ",";
+        json << "\"lastBootstrapAgeSeconds\":";
+        emit_optional_int_json(json, age_in_seconds(dht.last_bootstrap_at));
+        json << ",\"lastReplyPeerCount\":";
+        emit_optional_int_json(json, events.last_dht_reply_peer_count);
+        json << ",\"lastReplyAgeSeconds\":";
+        emit_optional_int_json(json, age_in_seconds(events.last_dht_reply_at));
+        json << ",\"lastErrorCode\":";
+        emit_optional_int_json(json, dht.last_error_code);
+        json << "},\"portMappings\":";
+        emit_port_mapping_diagnostics_json(json);
+        json << "}";
+    }
+
     void pump_progress() {
         while (!stopping_.load()) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
+            process_alerts();
 
             std::vector<std::pair<std::string, lt::torrent_handle>> snapshot;
             {
@@ -901,6 +1302,9 @@ private:
         json << "\"percentComplete\":" << percent << ",";
         json << "\"bytesPerSecond\":" << status.download_rate << ",";
         json << "\"peerCount\":" << status.num_peers << ",";
+        json << "\"swarmDiagnostics\":";
+        emit_swarm_diagnostics_json(json, job_id, handle, status);
+        json << ",";
         json << "\"infoHash\":";
         emit_info_hash_json(json, handle);
         json << ",";
@@ -918,6 +1322,8 @@ private:
     std::atomic_bool stopping_{false};
     mutable std::mutex lock_;
     std::unordered_map<std::string, JobState> jobs_;
+    DhtSessionEvents dht_events_;
+    std::unordered_map<int, PortMappingEvent> port_mapping_events_;
     std::string last_error_;
     std::thread worker_;
 };

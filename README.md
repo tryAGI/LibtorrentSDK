@@ -11,13 +11,19 @@ exercise the Swift ABI wrapper through in-process fake C symbols.
 ## Usage
 
 ```swift
-.package(url: "https://github.com/tryAGI/LibtorrentSDK", exact: "0.2.3")
+.package(url: "https://github.com/tryAGI/LibtorrentSDK", exact: "0.2.4")
 ```
 
 Use `LibtorrentRateLimits` on `LibtorrentJobInput` to constrain native
 libtorrent transfer rates. `nil` leaves that direction unlimited. Libtorrent
 treats `0` as unlimited, so `LibtorrentRateLimits.mobileDownloadOnly` uses a
 one-byte-per-second upload cap for mobile download-focused sessions.
+
+`LibtorrentProgress.swarmDiagnostics` is an optional live aggregate snapshot.
+It reports counts and coarse tracker/DHT/NAT mapping state to help distinguish
+peer scarcity from discovery or connectivity failures. It intentionally omits
+peer and DHT addresses or identifiers, tracker paths/queries/credentials,
+tracker messages, external addresses, and mapped external ports.
 
 ## Refreshing LibtorrentNative.xcframework
 
