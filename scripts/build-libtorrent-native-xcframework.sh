@@ -10,6 +10,9 @@ libtorrent_source="${LIBTORRENT_SOURCE:-}"
 build_root="${LIBTORRENT_BUILD_ROOT:-$repo_root/artifacts/libtorrent-native}"
 output_path="${LIBTORRENT_XCFRAMEWORK_OUTPUT:-$repo_root/vendor/LibtorrentNative.xcframework}"
 ios_deployment_target="${IOS_DEPLOYMENT_TARGET:-26.1}"
+openssl_version="${OPENSSL_APPLE_VERSION:-3.6.300}"
+openssl_checksum="${OPENSSL_APPLE_CHECKSUM:-ecb4b3972de7967ccaa37518c502a45b79f7a82bc4e10165455ac96309e64558}"
+openssl_xcframework="${OPENSSL_XCFRAMEWORK:-}"
 reuse_build="${LIBTORRENT_REUSE_BUILD:-0}"
 fetch_source=1
 
@@ -27,6 +30,8 @@ Options:
   --build-root <path>   Build/cache directory. Default: artifacts/libtorrent-native
   --output <path>       XCFramework output path.
                         Default: vendor/LibtorrentNative.xcframework
+  --openssl <path>      Reuse an openssl.xcframework. By default the pinned
+                        openssl-apple release is downloaded and verified.
   --reuse-build         Reuse existing CMake/Xcode slice directories.
                         Default is a clean slice rebuild.
   -h, --help            Show this help.
@@ -35,6 +40,7 @@ Environment overrides:
   BOOST_ROOT, LIBTORRENT_REF, LIBTORRENT_SOURCE, LIBTORRENT_BUILD_ROOT,
   LIBTORRENT_XCFRAMEWORK_OUTPUT, LIBTORRENT_REUSE_BUILD,
   LIBTORRENT_FORCE_SUBMODULE_UPDATE, IOS_DEPLOYMENT_TARGET
+  OPENSSL_XCFRAMEWORK, OPENSSL_APPLE_VERSION, OPENSSL_APPLE_CHECKSUM
 EOF
 }
 
@@ -57,6 +63,10 @@ while [[ $# -gt 0 ]]; do
             output_path="${2:?--output requires a path}"
             shift 2
             ;;
+        --openssl)
+            openssl_xcframework="${2:?--openssl requires a path}"
+            shift 2
+            ;;
         --reuse-build)
             reuse_build=1
             shift
@@ -74,7 +84,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 missing_tools=()
-for tool in git cmake xcodebuild xcrun; do
+for tool in awk git cmake curl ditto grep otool shasum xcodebuild xcrun; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         missing_tools+=("$tool")
     fi
@@ -138,6 +148,40 @@ restore_libtorrent_dependency() {
 }
 
 mkdir -p "$build_root"
+
+prepare_openssl() {
+    if [[ -n "$openssl_xcframework" ]]; then
+        if [[ ! -d "$openssl_xcframework" ]]; then
+            echo "OpenSSL XCFramework does not exist: $openssl_xcframework" >&2
+            exit 1
+        fi
+        return
+    fi
+
+    local openssl_root="$build_root/openssl-apple-$openssl_version"
+    local archive="$openssl_root/openssl.xcframework.zip"
+    openssl_xcframework="$openssl_root/openssl.xcframework"
+
+    if [[ ! -f "$archive" ]]; then
+        mkdir -p "$openssl_root"
+        curl --fail --location --retry 3 \
+            "https://github.com/partout-io/openssl-apple/releases/download/$openssl_version/openssl.xcframework.zip" \
+            --output "$archive"
+    fi
+
+    local actual_checksum
+    actual_checksum="$(shasum -a 256 "$archive" | awk '{print $1}')"
+    if [[ "$actual_checksum" != "$openssl_checksum" ]]; then
+        echo "OpenSSL archive checksum mismatch: expected $openssl_checksum, got $actual_checksum" >&2
+        exit 1
+    fi
+
+    if [[ ! -d "$openssl_xcframework" ]]; then
+        ditto -x -k "$archive" "$openssl_root"
+    fi
+}
+
+prepare_openssl
 
 if [[ "$fetch_source" -eq 1 ]]; then
     if [[ -d "$libtorrent_source/.git" ]]; then
@@ -214,8 +258,27 @@ build_slice() {
     local sdk="$2"
     local architectures="$3"
     local slice_root="$build_root/$label"
+    local openssl_framework
+    local openssl_include_root
     local sdk_path
     sdk_path="$(xcrun --sdk "$sdk" --show-sdk-path)"
+
+    case "$sdk" in
+        iphoneos)
+            openssl_framework="$openssl_xcframework/ios-arm64_arm64e/openssl.framework"
+            ;;
+        iphonesimulator)
+            openssl_framework="$openssl_xcframework/ios-arm64_x86_64-simulator/openssl.framework"
+            ;;
+        *)
+            echo "Unsupported SDK for OpenSSL slice selection: $sdk" >&2
+            exit 1
+            ;;
+    esac
+    if [[ ! -f "$openssl_framework/openssl" ]]; then
+        echo "Missing OpenSSL framework binary: $openssl_framework/openssl" >&2
+        exit 1
+    fi
 
     if [[ "$reuse_build" != "1" ]]; then
         rm -rf "$slice_root"
@@ -223,10 +286,17 @@ build_slice() {
         reset_stale_cmake_cache "$slice_root"
     fi
     mkdir -p "$slice_root"
+    openssl_include_root="$slice_root/openssl-include"
+    mkdir -p "$openssl_include_root"
+    ln -sfn "$openssl_framework/Headers" "$openssl_include_root/openssl"
 
     echo "Configuring $label ($sdk, $architectures)"
     cmake -S "$bridge_dir" -B "$slice_root" \
         "${cmake_common_args[@]}" \
+        -DOPENSSL_ROOT_DIR="$openssl_framework" \
+        -DOPENSSL_INCLUDE_DIR="$openssl_include_root" \
+        -DOPENSSL_SSL_LIBRARY="$openssl_framework/openssl" \
+        -DOPENSSL_CRYPTO_LIBRARY="$openssl_framework/openssl" \
         -DCMAKE_OSX_SYSROOT="$sdk_path" \
         -DCMAKE_OSX_ARCHITECTURES="$architectures"
 
@@ -256,5 +326,14 @@ xcodebuild -create-xcframework \
     -framework "$device_framework" \
     -framework "$simulator_framework" \
     -output "$output_path"
+
+for binary in \
+    "$output_path/ios-arm64/LibtorrentNative.framework/LibtorrentNative" \
+    "$output_path/ios-arm64_x86_64-simulator/LibtorrentNative.framework/LibtorrentNative"; do
+    if ! otool -L "$binary" | grep -q '@rpath/openssl.framework/openssl'; then
+        echo "Built native framework is missing its OpenSSL runtime dependency: $binary" >&2
+        exit 1
+    fi
+done
 
 echo "Built $output_path"

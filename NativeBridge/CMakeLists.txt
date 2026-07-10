@@ -26,6 +26,14 @@ else()
     message(FATAL_ERROR "The libtorrent CMake target was not found after add_subdirectory().")
 endif()
 
+# The pinned openssl-apple binary intentionally hides OpenSSL 3's deprecated
+# low-level digest contexts. Use Apple's CommonCrypto for piece hashing while
+# retaining OpenSSL for TLS, certificate validation, and secure randomness.
+target_compile_definitions(${LIBTORRENT_CMAKE_TARGET}
+    PUBLIC
+        TORRENT_USE_COMMONCRYPTO
+)
+
 add_library(LibtorrentNative SHARED
     src/LibtorrentNative.cpp
 )

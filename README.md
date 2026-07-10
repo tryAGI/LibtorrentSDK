@@ -8,10 +8,14 @@ adapter. The native implementation ships as `LibtorrentNative.xcframework`,
 distributed as a GitHub release asset and linked only for iOS. macOS tests can
 exercise the Swift ABI wrapper through in-process fake C symbols.
 
+The iOS runtime also links the pinned `openssl-apple` XCFramework so libtorrent
+can use HTTPS trackers and BEP 19 web seeds. Keep its release URL and checksum
+in `Package.swift` aligned with the native builder pins.
+
 ## Usage
 
 ```swift
-.package(url: "https://github.com/tryAGI/LibtorrentSDK", exact: "0.2.6")
+.package(url: "https://github.com/tryAGI/LibtorrentSDK", exact: "0.2.7")
 ```
 
 Use `LibtorrentRateLimits` on `LibtorrentJobInput` to constrain native
@@ -40,10 +44,16 @@ changes, or Xcode starts rejecting the existing binary slice.
 LIBTORRENT_REF=v2.0.13 bash scripts/build-libtorrent-native-xcframework.sh
 ```
 
-The builder uses `NativeBridge/` for the C ABI framework source and clones
-libtorrent into `artifacts/libtorrent-native/libtorrent-src` unless
+The builder uses `NativeBridge/` for the C ABI framework source, downloads and
+verifies the pinned OpenSSL XCFramework, and clones libtorrent into
+`artifacts/libtorrent-native/libtorrent-src` unless
 `--source <path>` or `LIBTORRENT_SOURCE` is provided. It emits
 `vendor/LibtorrentNative.xcframework` by default.
+
+Pass `--openssl <path>` to reuse an already downloaded
+`openssl.xcframework`. The resulting native framework retains an
+`@rpath/openssl.framework/openssl` dependency; SwiftPM embeds and signs that
+binary through the `OpenSSL` binary target.
 
 Release artifacts must be zipped with the XCFramework directory as the archive
 root:

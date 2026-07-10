@@ -27,14 +27,23 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "LibtorrentNative",
-            url: "https://github.com/tryAGI/LibtorrentSDK/releases/download/v0.2.6/LibtorrentNative.xcframework.zip",
-            checksum: "fb4900ee5747fe9b04a3ddb8677a0097aa6da87bde0140d9c025b2ed4dd8132e"
+            url: "https://github.com/tryAGI/LibtorrentSDK/releases/download/v0.2.7/LibtorrentNative.xcframework.zip",
+            checksum: "5b2d5f80efdea88e75dd14c29b8ac128d50ac4136d243f1c19098c7da5db322f"
+        ),
+        .binaryTarget(
+            name: "OpenSSL",
+            url: "https://github.com/partout-io/openssl-apple/releases/download/3.6.300/openssl.xcframework.zip",
+            checksum: "ecb4b3972de7967ccaa37518c502a45b79f7a82bc4e10165455ac96309e64558"
         ),
         .target(
             name: "LibtorrentSDK",
             dependencies: [
                 .target(
                     name: "LibtorrentNative",
+                    condition: .when(platforms: [.iOS])
+                ),
+                .target(
+                    name: "OpenSSL",
                     condition: .when(platforms: [.iOS])
                 ),
             ],
