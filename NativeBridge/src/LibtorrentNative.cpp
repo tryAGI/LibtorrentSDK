@@ -680,6 +680,8 @@ lt::settings_pack make_settings() {
     settings.set_bool(lt::settings_pack::enable_lsd, true);
     settings.set_bool(lt::settings_pack::enable_upnp, true);
     settings.set_bool(lt::settings_pack::enable_natpmp, true);
+    settings.set_bool(lt::settings_pack::prioritize_partial_pieces, true);
+    settings.set_bool(lt::settings_pack::piece_extent_affinity, true);
     settings.set_int(lt::settings_pack::max_web_seed_connections, 12);
     settings.set_int(lt::settings_pack::urlseed_pipeline_size, 10);
     return settings;

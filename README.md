@@ -20,7 +20,7 @@ validation remains enabled.
 ## Usage
 
 ```swift
-.package(url: "https://github.com/tryAGI/LibtorrentSDK", exact: "0.2.9")
+.package(url: "https://github.com/tryAGI/LibtorrentSDK", exact: "0.2.10")
 ```
 
 Use `LibtorrentRateLimits` on `LibtorrentJobInput` to constrain native
@@ -32,6 +32,10 @@ The native session permits up to 12 concurrent web seeds with a pipeline depth
 of 10. Progress reports payload throughput (`download_payload_rate`) rather
 than peer-protocol overhead, so the displayed speed reflects bytes that can
 actually complete torrent pieces.
+
+Partial pieces are prioritized and piece-extent affinity is enabled. This
+keeps mobile peer/web-seed requests concentrated into contiguous 4 MiB extents,
+reducing redundant blocks and producing verified pieces earlier.
 
 `LibtorrentProgress.swarmDiagnostics` is an optional live aggregate snapshot.
 It reports counts and coarse tracker/DHT/NAT mapping state to help distinguish
