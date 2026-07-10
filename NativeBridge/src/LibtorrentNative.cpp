@@ -1038,6 +1038,8 @@ private:
             if (entry.second.handle == alert.handle) {
                 entry.second.swarm_events.last_dht_reply_at = now;
                 entry.second.swarm_events.last_dht_reply_peer_count = alert.num_peers;
+                dht_events_.last_error_at.reset();
+                dht_events_.last_error_code.reset();
                 return;
             }
         }
@@ -1046,6 +1048,8 @@ private:
     void record_dht_bootstrap() {
         std::lock_guard<std::mutex> guard(lock_);
         dht_events_.last_bootstrap_at = std::chrono::steady_clock::now();
+        dht_events_.last_error_at.reset();
+        dht_events_.last_error_code.reset();
     }
 
     void record_dht_error(int error_code) {
