@@ -19,3 +19,12 @@ and the C ABI bridge in `NativeBridge/`.
 
 The iOS runtime links the `openssl.xcframework` release binary to enable HTTPS
 trackers and web seeds.
+
+## Mozilla CA Certificate Store
+
+- Distribution: https://curl.se/docs/caextract.html
+- Snapshot date: May 14, 2026
+- License: Mozilla Public License 2.0
+
+The native framework embeds curl's PEM extract of Mozilla's trusted root
+certificate store so OpenSSL can validate HTTPS servers on iOS.

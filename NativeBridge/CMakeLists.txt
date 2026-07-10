@@ -5,6 +5,9 @@ project(LibtorrentNative VERSION 0.2.2 LANGUAGES CXX)
 if(NOT DEFINED LIBTORRENT_SOURCE_DIR)
     message(FATAL_ERROR "LIBTORRENT_SOURCE_DIR must point to a libtorrent source checkout.")
 endif()
+if(NOT DEFINED LIBTORRENT_CA_BUNDLE OR NOT EXISTS "${LIBTORRENT_CA_BUNDLE}")
+    message(FATAL_ERROR "LIBTORRENT_CA_BUNDLE must point to a verified PEM CA bundle.")
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -36,6 +39,11 @@ target_compile_definitions(${LIBTORRENT_CMAKE_TARGET}
 
 add_library(LibtorrentNative SHARED
     src/LibtorrentNative.cpp
+    "${LIBTORRENT_CA_BUNDLE}"
+)
+
+set_source_files_properties("${LIBTORRENT_CA_BUNDLE}" PROPERTIES
+    MACOSX_PACKAGE_LOCATION Resources
 )
 
 target_include_directories(LibtorrentNative
@@ -47,6 +55,7 @@ target_include_directories(LibtorrentNative
 target_link_libraries(LibtorrentNative
     PRIVATE
         ${LIBTORRENT_CMAKE_TARGET}
+        "-framework CoreFoundation"
 )
 
 set_target_properties(LibtorrentNative PROPERTIES

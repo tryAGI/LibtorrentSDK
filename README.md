@@ -12,10 +12,15 @@ The iOS runtime also links the pinned `openssl-apple` XCFramework so libtorrent
 can use HTTPS trackers and BEP 19 web seeds. Keep its release URL and checksum
 in `Package.swift` aligned with the native builder pins.
 
+Because iOS does not expose its system root certificates as an OpenSSL CA file,
+the native framework embeds a checksum-pinned Mozilla CA extract from curl and
+sets `SSL_CERT_FILE` before libtorrent creates its TLS context. Certificate
+validation remains enabled.
+
 ## Usage
 
 ```swift
-.package(url: "https://github.com/tryAGI/LibtorrentSDK", exact: "0.2.7")
+.package(url: "https://github.com/tryAGI/LibtorrentSDK", exact: "0.2.8")
 ```
 
 Use `LibtorrentRateLimits` on `LibtorrentJobInput` to constrain native
@@ -54,6 +59,9 @@ Pass `--openssl <path>` to reuse an already downloaded
 `openssl.xcframework`. The resulting native framework retains an
 `@rpath/openssl.framework/openssl` dependency; SwiftPM embeds and signs that
 binary through the `OpenSSL` binary target.
+
+Pass `--ca-bundle <path>` to reuse the pinned PEM trust store. The builder
+rejects any CA bundle whose SHA-256 checksum does not match the configured pin.
 
 Release artifacts must be zipped with the XCFramework directory as the archive
 root:

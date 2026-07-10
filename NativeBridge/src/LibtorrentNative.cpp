@@ -1,5 +1,7 @@
 #include "LibtorrentNative.h"
 
+#include <CoreFoundation/CoreFoundation.h>
+
 #include <libtorrent/add_torrent_params.hpp>
 #include <libtorrent/alert_types.hpp>
 #include <libtorrent/announce_entry.hpp>
@@ -20,6 +22,7 @@
 #include <atomic>
 #include <chrono>
 #include <cctype>
+#include <cstdlib>
 #include <cstdint>
 #include <iomanip>
 #include <limits>
@@ -27,6 +30,7 @@
 #include <mutex>
 #include <optional>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -35,6 +39,32 @@
 
 namespace {
 namespace lt = libtorrent;
+
+bool configure_openssl_ca_bundle() {
+    CFBundleRef bundle = CFBundleGetBundleWithIdentifier(CFSTR("io.github.tryagi.libtorrent-native"));
+    if (bundle == nullptr) {
+        return false;
+    }
+
+    CFURLRef url = CFBundleCopyResourceURL(bundle, CFSTR("cacert"), CFSTR("pem"), nullptr);
+    if (url == nullptr) {
+        return false;
+    }
+
+    std::vector<UInt8> path(4096);
+    const Boolean resolved = CFURLGetFileSystemRepresentation(
+        url,
+        true,
+        path.data(),
+        static_cast<CFIndex>(path.size())
+    );
+    CFRelease(url);
+    if (!resolved) {
+        return false;
+    }
+
+    return setenv("SSL_CERT_FILE", reinterpret_cast<const char *>(path.data()), 1) == 0;
+}
 
 struct FileSelection {
     bool all = false;
@@ -632,6 +662,9 @@ std::string parse_job_id(const char *json) {
 }
 
 lt::settings_pack make_settings() {
+    if (!configure_openssl_ca_bundle()) {
+        throw std::runtime_error("Unable to configure the bundled TLS certificate store");
+    }
     lt::settings_pack settings;
     settings.set_int(
         lt::settings_pack::alert_mask,

@@ -13,6 +13,8 @@ ios_deployment_target="${IOS_DEPLOYMENT_TARGET:-26.1}"
 openssl_version="${OPENSSL_APPLE_VERSION:-3.6.300}"
 openssl_checksum="${OPENSSL_APPLE_CHECKSUM:-ecb4b3972de7967ccaa37518c502a45b79f7a82bc4e10165455ac96309e64558}"
 openssl_xcframework="${OPENSSL_XCFRAMEWORK:-}"
+ca_bundle_checksum="${LIBTORRENT_CA_BUNDLE_CHECKSUM:-86a1f3366afac7c6f8ae9f3c779ac221129328c43f0ab2b8817eb2f362a5025c}"
+ca_bundle="${LIBTORRENT_CA_BUNDLE:-}"
 reuse_build="${LIBTORRENT_REUSE_BUILD:-0}"
 fetch_source=1
 
@@ -32,6 +34,8 @@ Options:
                         Default: vendor/LibtorrentNative.xcframework
   --openssl <path>      Reuse an openssl.xcframework. By default the pinned
                         openssl-apple release is downloaded and verified.
+  --ca-bundle <path>    Reuse a PEM CA bundle. By default the pinned Mozilla
+                        CA extract published by curl is downloaded and verified.
   --reuse-build         Reuse existing CMake/Xcode slice directories.
                         Default is a clean slice rebuild.
   -h, --help            Show this help.
@@ -41,6 +45,7 @@ Environment overrides:
   LIBTORRENT_XCFRAMEWORK_OUTPUT, LIBTORRENT_REUSE_BUILD,
   LIBTORRENT_FORCE_SUBMODULE_UPDATE, IOS_DEPLOYMENT_TARGET
   OPENSSL_XCFRAMEWORK, OPENSSL_APPLE_VERSION, OPENSSL_APPLE_CHECKSUM
+  LIBTORRENT_CA_BUNDLE, LIBTORRENT_CA_BUNDLE_CHECKSUM
 EOF
 }
 
@@ -67,6 +72,10 @@ while [[ $# -gt 0 ]]; do
             openssl_xcframework="${2:?--openssl requires a path}"
             shift 2
             ;;
+        --ca-bundle)
+            ca_bundle="${2:?--ca-bundle requires a path}"
+            shift 2
+            ;;
         --reuse-build)
             reuse_build=1
             shift
@@ -84,7 +93,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 missing_tools=()
-for tool in awk git cmake curl ditto grep otool shasum xcodebuild xcrun; do
+for tool in awk git cmake cp curl ditto grep otool shasum xcodebuild xcrun; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         missing_tools+=("$tool")
     fi
@@ -183,6 +192,33 @@ prepare_openssl() {
 
 prepare_openssl
 
+prepare_ca_bundle() {
+    if [[ -n "$ca_bundle" ]]; then
+        if [[ ! -f "$ca_bundle" ]]; then
+            echo "CA bundle does not exist: $ca_bundle" >&2
+            exit 1
+        fi
+    else
+        local ca_root="$build_root/mozilla-ca-2026-05-14"
+        ca_bundle="$ca_root/cacert.pem"
+        if [[ ! -f "$ca_bundle" ]]; then
+            mkdir -p "$ca_root"
+            curl --fail --location --retry 3 \
+                "https://curl.se/ca/cacert.pem" \
+                --output "$ca_bundle"
+        fi
+    fi
+
+    local actual_checksum
+    actual_checksum="$(shasum -a 256 "$ca_bundle" | awk '{print $1}')"
+    if [[ "$actual_checksum" != "$ca_bundle_checksum" ]]; then
+        echo "CA bundle checksum mismatch: expected $ca_bundle_checksum, got $actual_checksum" >&2
+        exit 1
+    fi
+}
+
+prepare_ca_bundle
+
 if [[ "$fetch_source" -eq 1 ]]; then
     if [[ -d "$libtorrent_source/.git" ]]; then
         echo "Updating libtorrent source at $libtorrent_source ($libtorrent_ref)"
@@ -260,6 +296,7 @@ build_slice() {
     local slice_root="$build_root/$label"
     local openssl_framework
     local openssl_include_root
+    local staged_ca_bundle
     local sdk_path
     sdk_path="$(xcrun --sdk "$sdk" --show-sdk-path)"
 
@@ -286,6 +323,8 @@ build_slice() {
         reset_stale_cmake_cache "$slice_root"
     fi
     mkdir -p "$slice_root"
+    staged_ca_bundle="$slice_root/cacert.pem"
+    cp "$ca_bundle" "$staged_ca_bundle"
     openssl_include_root="$slice_root/openssl-include"
     mkdir -p "$openssl_include_root"
     ln -sfn "$openssl_framework/Headers" "$openssl_include_root/openssl"
@@ -297,6 +336,7 @@ build_slice() {
         -DOPENSSL_INCLUDE_DIR="$openssl_include_root" \
         -DOPENSSL_SSL_LIBRARY="$openssl_framework/openssl" \
         -DOPENSSL_CRYPTO_LIBRARY="$openssl_framework/openssl" \
+        -DLIBTORRENT_CA_BUNDLE="$staged_ca_bundle" \
         -DCMAKE_OSX_SYSROOT="$sdk_path" \
         -DCMAKE_OSX_ARCHITECTURES="$architectures"
 
@@ -332,6 +372,16 @@ for binary in \
     "$output_path/ios-arm64_x86_64-simulator/LibtorrentNative.framework/LibtorrentNative"; do
     if ! otool -L "$binary" | grep -q '@rpath/openssl.framework/openssl'; then
         echo "Built native framework is missing its OpenSSL runtime dependency: $binary" >&2
+        exit 1
+    fi
+    embedded_ca_bundle="$(dirname "$binary")/cacert.pem"
+    if [[ ! -f "$embedded_ca_bundle" ]]; then
+        echo "Built native framework is missing its CA bundle: $embedded_ca_bundle" >&2
+        exit 1
+    fi
+    embedded_ca_checksum="$(shasum -a 256 "$embedded_ca_bundle" | awk '{print $1}')"
+    if [[ "$embedded_ca_checksum" != "$ca_bundle_checksum" ]]; then
+        echo "Embedded CA bundle checksum mismatch in $embedded_ca_bundle" >&2
         exit 1
     fi
 done
