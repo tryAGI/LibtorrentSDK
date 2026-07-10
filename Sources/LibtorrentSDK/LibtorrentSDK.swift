@@ -121,6 +121,8 @@ public struct LibtorrentFileInfo: Sendable, Equatable, Identifiable, Codable {
 public struct LibtorrentSwarmDiagnostics: Sendable, Equatable, Codable {
     public let connectedPeers: Int?
     public let connectedSeeds: Int?
+    /// Connected and half-open peer connections, as reported by libtorrent.
+    public let connectionCount: Int?
     public let knownPeers: Int?
     public let knownSeeds: Int?
     public let connectCandidates: Int?
@@ -135,6 +137,7 @@ public struct LibtorrentSwarmDiagnostics: Sendable, Equatable, Codable {
     public init(
         connectedPeers: Int? = nil,
         connectedSeeds: Int? = nil,
+        connectionCount: Int? = nil,
         knownPeers: Int? = nil,
         knownSeeds: Int? = nil,
         connectCandidates: Int? = nil,
@@ -148,6 +151,7 @@ public struct LibtorrentSwarmDiagnostics: Sendable, Equatable, Codable {
     ) {
         self.connectedPeers = connectedPeers
         self.connectedSeeds = connectedSeeds
+        self.connectionCount = connectionCount
         self.knownPeers = knownPeers
         self.knownSeeds = knownSeeds
         self.connectCandidates = connectCandidates

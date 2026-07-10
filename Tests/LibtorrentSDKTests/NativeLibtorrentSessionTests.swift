@@ -44,6 +44,7 @@ import XCTest
                 XCTAssertEqual(progress.files.first?.bytesCompleted, 4)
                 XCTAssertEqual(progress.swarmDiagnostics?.connectedPeers, 2)
                 XCTAssertEqual(progress.swarmDiagnostics?.connectedSeeds, 1)
+                XCTAssertEqual(progress.swarmDiagnostics?.connectionCount, 3)
                 XCTAssertEqual(progress.swarmDiagnostics?.trackers.first?.endpoint, "udp://tracker.example.test:6969")
                 XCTAssertEqual(progress.swarmDiagnostics?.trackers.first?.lastResponsePeerCount, 7)
                 XCTAssertEqual(progress.swarmDiagnostics?.dht?.nodeCount, 42)
@@ -336,7 +337,7 @@ import XCTest
 
         private func emitProgress(jobId: String) {
             let json = """
-            {"type":"progress","progress":{"jobId":"\(jobId)","status":"downloading","infoHash":"abcdef0123456789abcdef0123456789abcdef01","bytesCompleted":4,"totalBytes":8,"percentComplete":50,"swarmDiagnostics":{"connectedPeers":2,"connectedSeeds":1,"knownPeers":5,"knownSeeds":2,"connectCandidates":3,"trackerReportedSeeds":10,"trackerReportedLeechers":12,"nextAnnounceInSeconds":45,"hasIncomingConnections":false,"trackers":[{"endpoint":"udp://tracker.example.test:6969","tier":0,"isVerified":true,"consecutiveFailures":0,"isUpdating":false,"lastEvent":"reply","lastEventAgeSeconds":1,"lastResponsePeerCount":7,"lastErrorCode":null}],"dht":{"isRunning":true,"nodeCount":42,"lastBootstrapAgeSeconds":3,"lastReplyPeerCount":4,"lastReplyAgeSeconds":1,"lastErrorCode":null},"portMappings":[{"mappingIndex":1,"transport":"upnp","protocolName":"tcp","status":"mapped","lastEventAgeSeconds":2,"lastErrorCode":null}]},"files":[{"id":0,"path":"sample.mp4","sizeBytes":8,"bytesCompleted":4,"percentComplete":50}]}}
+            {"type":"progress","progress":{"jobId":"\(jobId)","status":"downloading","infoHash":"abcdef0123456789abcdef0123456789abcdef01","bytesCompleted":4,"totalBytes":8,"percentComplete":50,"swarmDiagnostics":{"connectedPeers":2,"connectedSeeds":1,"connectionCount":3,"knownPeers":5,"knownSeeds":2,"connectCandidates":3,"trackerReportedSeeds":10,"trackerReportedLeechers":12,"nextAnnounceInSeconds":45,"hasIncomingConnections":false,"trackers":[{"endpoint":"udp://tracker.example.test:6969","tier":0,"isVerified":true,"consecutiveFailures":0,"isUpdating":false,"lastEvent":"reply","lastEventAgeSeconds":1,"lastResponsePeerCount":7,"lastErrorCode":null}],"dht":{"isRunning":true,"nodeCount":42,"lastBootstrapAgeSeconds":3,"lastReplyPeerCount":4,"lastReplyAgeSeconds":1,"lastErrorCode":null},"portMappings":[{"mappingIndex":1,"transport":"upnp","protocolName":"tcp","status":"mapped","lastEventAgeSeconds":2,"lastErrorCode":null}]},"files":[{"id":0,"path":"sample.mp4","sizeBytes":8,"bytesCompleted":4,"percentComplete":50}]}}
             """
 
             let target = locked {

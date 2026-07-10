@@ -1237,6 +1237,7 @@ private:
 
         json << "{\"connectedPeers\":" << status.num_peers << ",";
         json << "\"connectedSeeds\":" << status.num_seeds << ",";
+        json << "\"connectionCount\":" << status.num_connections << ",";
         json << "\"knownPeers\":" << status.list_peers << ",";
         json << "\"knownSeeds\":" << status.list_seeds << ",";
         json << "\"connectCandidates\":" << status.connect_candidates << ",";
