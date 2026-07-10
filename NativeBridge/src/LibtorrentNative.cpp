@@ -24,6 +24,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <cstdint>
+#include <cstdio>
 #include <iomanip>
 #include <limits>
 #include <memory>
@@ -679,6 +680,8 @@ lt::settings_pack make_settings() {
     settings.set_bool(lt::settings_pack::enable_lsd, true);
     settings.set_bool(lt::settings_pack::enable_upnp, true);
     settings.set_bool(lt::settings_pack::enable_natpmp, true);
+    settings.set_int(lt::settings_pack::max_web_seed_connections, 12);
+    settings.set_int(lt::settings_pack::urlseed_pipeline_size, 10);
     return settings;
 }
 
@@ -1138,6 +1141,12 @@ private:
                 record_port_mapping_success(*mapping);
             } else if (const auto *mapping = lt::alert_cast<lt::portmap_error_alert>(alert)) {
                 record_port_mapping_error(*mapping);
+            } else if (const auto *web_seed = lt::alert_cast<lt::url_seed_alert>(alert)) {
+                std::fprintf(
+                    stderr,
+                    "[LibtorrentNative] web seed failure code=%d\n",
+                    web_seed->error.value()
+                );
             }
         }
     }
@@ -1338,7 +1347,7 @@ private:
         json << "\"bytesCompleted\":" << status.total_done << ",";
         json << "\"totalBytes\":" << status.total_wanted << ",";
         json << "\"percentComplete\":" << percent << ",";
-        json << "\"bytesPerSecond\":" << status.download_rate << ",";
+        json << "\"bytesPerSecond\":" << status.download_payload_rate << ",";
         json << "\"peerCount\":" << status.num_peers << ",";
         json << "\"swarmDiagnostics\":";
         emit_swarm_diagnostics_json(json, job_id, handle, status);

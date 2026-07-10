@@ -20,13 +20,18 @@ validation remains enabled.
 ## Usage
 
 ```swift
-.package(url: "https://github.com/tryAGI/LibtorrentSDK", exact: "0.2.8")
+.package(url: "https://github.com/tryAGI/LibtorrentSDK", exact: "0.2.9")
 ```
 
 Use `LibtorrentRateLimits` on `LibtorrentJobInput` to constrain native
 libtorrent transfer rates. `nil` leaves that direction unlimited. Libtorrent
 treats `0` as unlimited, so `LibtorrentRateLimits.mobileDownloadOnly` uses a
 one-byte-per-second upload cap for mobile download-focused sessions.
+
+The native session permits up to 12 concurrent web seeds with a pipeline depth
+of 10. Progress reports payload throughput (`download_payload_rate`) rather
+than peer-protocol overhead, so the displayed speed reflects bytes that can
+actually complete torrent pieces.
 
 `LibtorrentProgress.swarmDiagnostics` is an optional live aggregate snapshot.
 It reports counts and coarse tracker/DHT/NAT mapping state to help distinguish
