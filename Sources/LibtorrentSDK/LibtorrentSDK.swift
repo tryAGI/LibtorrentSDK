@@ -71,17 +71,20 @@ public struct LibtorrentFileSelection: Sendable, Equatable, Codable {
     public let fileIndexes: [Int]
     public let globs: [String]
     public let primaryFileIndex: Int?
+    public let priorityFileIndexes: [Int]
 
     public init(
         all: Bool = false,
         fileIndexes: [Int] = [],
         globs: [String] = [],
-        primaryFileIndex: Int? = nil
+        primaryFileIndex: Int? = nil,
+        priorityFileIndexes: [Int] = []
     ) {
         self.all = all
         self.fileIndexes = fileIndexes
         self.globs = globs
         self.primaryFileIndex = primaryFileIndex
+        self.priorityFileIndexes = priorityFileIndexes
     }
 }
 

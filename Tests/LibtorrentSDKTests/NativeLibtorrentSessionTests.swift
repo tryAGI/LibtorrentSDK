@@ -79,7 +79,12 @@ import XCTest
 
             try await session.applySelection(
                 jobId: jobId,
-                selection: LibtorrentFileSelection(fileIndexes: [2, 4], globs: ["*.mp3"], primaryFileIndex: 2)
+                selection: LibtorrentFileSelection(
+                    fileIndexes: [2, 4],
+                    globs: ["*.mp3"],
+                    primaryFileIndex: 2,
+                    priorityFileIndexes: [2, 4]
+                )
             )
             try await session.updateRateLimits(
                 jobId: jobId,
@@ -95,6 +100,7 @@ import XCTest
             XCTAssertTrue(snapshot.lastSelectionRequest?.localizedCaseInsensitiveContains(jobId.uuidString) == true)
             XCTAssertTrue(snapshot.lastSelectionRequest?.contains("\"fileIndexes\":[2,4]") == true)
             XCTAssertTrue(snapshot.lastSelectionRequest?.contains("\"globs\":[\"*.mp3\"]") == true)
+            XCTAssertTrue(snapshot.lastSelectionRequest?.contains("\"priorityFileIndexes\":[2,4]") == true)
             XCTAssertTrue(snapshot.lastRateLimitRequest?.localizedCaseInsensitiveContains(jobId.uuidString) == true)
             XCTAssertTrue(snapshot.lastRateLimitRequest?.contains("\"downloadBytesPerSecond\":0") == true)
             XCTAssertTrue(snapshot.lastRateLimitRequest?.contains("\"uploadBytesPerSecond\":524288") == true)

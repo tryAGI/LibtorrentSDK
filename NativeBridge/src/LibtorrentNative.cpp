@@ -72,6 +72,7 @@ struct FileSelection {
     std::vector<int> file_indexes;
     std::vector<std::string> globs;
     std::optional<int> primary_file_index;
+    std::vector<int> priority_file_indexes;
 };
 
 struct StartRequest {
@@ -626,6 +627,7 @@ std::optional<FileSelection> parse_file_selection(const std::string &json) {
     selection.all = extract_json_bool(json, "all").value_or(false);
     selection.file_indexes = extract_json_int_array(json, "fileIndexes");
     selection.globs = extract_json_string_array(json, "globs");
+    selection.priority_file_indexes = extract_json_int_array(json, "priorityFileIndexes");
     if (const auto primary_file_index = extract_json_int(json, "primaryFileIndex");
         primary_file_index.has_value() &&
         *primary_file_index >= 0 &&
@@ -636,6 +638,7 @@ std::optional<FileSelection> parse_file_selection(const std::string &json) {
     if (!selection.all &&
         selection.file_indexes.empty() &&
         selection.globs.empty() &&
+        selection.priority_file_indexes.empty() &&
         !selection.primary_file_index.has_value()) {
         return std::nullopt;
     }
@@ -750,6 +753,14 @@ bool apply_file_selection(lt::torrent_handle &handle, const FileSelection &selec
         }
     }
 
+    for (std::size_t rank = 0; rank < selection.priority_file_indexes.size(); ++rank) {
+        const auto file_index = selection.priority_file_indexes[rank];
+        if (file_index >= 0 && file_index < file_count) {
+            const auto value = static_cast<std::uint8_t>(std::max(1, 7 - static_cast<int>(rank)));
+            priorities[static_cast<std::size_t>(file_index)] = lt::download_priority_t{value};
+        }
+    }
+
     for (int index = 0; index < file_count; ++index) {
         const lt::file_index_t file_index{index};
         if (is_file_selected_by_glob(selection.globs, files.file_path(file_index))) {
@@ -760,7 +771,7 @@ bool apply_file_selection(lt::torrent_handle &handle, const FileSelection &selec
     if (selection.primary_file_index.has_value() &&
         *selection.primary_file_index >= 0 &&
         *selection.primary_file_index < file_count) {
-        priorities[static_cast<std::size_t>(*selection.primary_file_index)] = lt::default_priority;
+        priorities[static_cast<std::size_t>(*selection.primary_file_index)] = lt::top_priority;
     }
 
     handle.prioritize_files(priorities);
