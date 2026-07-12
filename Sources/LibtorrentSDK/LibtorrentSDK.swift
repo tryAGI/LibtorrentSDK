@@ -177,6 +177,7 @@ public struct LibtorrentTrackerDiagnostics: Sendable, Equatable, Codable, Identi
     public let lastEventAgeSeconds: Int?
     public let lastResponsePeerCount: Int?
     public let lastErrorCode: Int?
+    public let lastHttpStatusCode: Int?
 
     public var id: String { endpoint }
 
@@ -189,7 +190,8 @@ public struct LibtorrentTrackerDiagnostics: Sendable, Equatable, Codable, Identi
         lastEvent: String? = nil,
         lastEventAgeSeconds: Int? = nil,
         lastResponsePeerCount: Int? = nil,
-        lastErrorCode: Int? = nil
+        lastErrorCode: Int? = nil,
+        lastHttpStatusCode: Int? = nil
     ) {
         self.endpoint = endpoint
         self.tier = tier
@@ -200,6 +202,7 @@ public struct LibtorrentTrackerDiagnostics: Sendable, Equatable, Codable, Identi
         self.lastEventAgeSeconds = lastEventAgeSeconds
         self.lastResponsePeerCount = lastResponsePeerCount
         self.lastErrorCode = lastErrorCode
+        self.lastHttpStatusCode = lastHttpStatusCode
     }
 }
 

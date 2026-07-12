@@ -95,6 +95,7 @@ struct JobState {
             std::optional<std::chrono::steady_clock::time_point> last_event_at;
             std::optional<int> last_response_peer_count;
             std::optional<int> last_error_code;
+            std::optional<int> last_http_status_code;
         };
 
         std::unordered_map<std::string, Tracker> trackers;
@@ -1040,7 +1041,8 @@ private:
         const lt::tracker_alert &alert,
         std::string event,
         std::optional<int> response_peer_count = std::nullopt,
-        std::optional<int> error_code = std::nullopt
+        std::optional<int> error_code = std::nullopt,
+        std::optional<int> http_status_code = std::nullopt
     ) {
         const std::string endpoint = redact_tracker_endpoint(alert.tracker_url());
         if (endpoint.empty()) {
@@ -1065,6 +1067,7 @@ private:
             } else if (tracker.last_event == "reply") {
                 tracker.last_error_code.reset();
             }
+            tracker.last_http_status_code = http_status_code;
             return;
         }
     }
@@ -1132,7 +1135,13 @@ private:
             } else if (const auto *tracker = lt::alert_cast<lt::tracker_warning_alert>(alert)) {
                 record_tracker_event(*tracker, "warning");
             } else if (const auto *tracker = lt::alert_cast<lt::tracker_error_alert>(alert)) {
-                record_tracker_event(*tracker, "error", std::nullopt, tracker->error.value());
+                record_tracker_event(
+                    *tracker,
+                    "error",
+                    std::nullopt,
+                    tracker->error.value(),
+                    tracker->status_code > 0 ? std::optional<int>(tracker->status_code) : std::nullopt
+                );
             } else if (const auto *reply = lt::alert_cast<lt::dht_reply_alert>(alert)) {
                 record_dht_reply(*reply);
             } else if (lt::alert_cast<lt::dht_bootstrap_alert>(alert) != nullptr) {
@@ -1167,6 +1176,7 @@ private:
             std::optional<std::chrono::steady_clock::time_point> last_event_at;
             std::optional<int> last_response_peer_count;
             std::optional<int> last_error_code;
+            std::optional<int> last_http_status_code;
         };
 
         std::unordered_map<std::string, TrackerSnapshot> snapshots;
@@ -1200,6 +1210,7 @@ private:
             snapshot.last_event_at = event.last_event_at;
             snapshot.last_response_peer_count = event.last_response_peer_count;
             snapshot.last_error_code = event.last_error_code;
+            snapshot.last_http_status_code = event.last_http_status_code;
         }
 
         std::vector<std::string> endpoints;
@@ -1234,6 +1245,8 @@ private:
             emit_optional_int_json(json, snapshot.last_response_peer_count);
             json << ",\"lastErrorCode\":";
             emit_optional_int_json(json, snapshot.last_error_code);
+            json << ",\"lastHttpStatusCode\":";
+            emit_optional_int_json(json, snapshot.last_http_status_code);
             json << "}";
         }
         json << "]";
@@ -1339,7 +1352,7 @@ private:
 
         lt::torrent_status status = handle.status();
         const bool completed = force_completed || status.is_finished;
-        const double percent = status.progress_ppm / 10000.0;
+        const double percent = completed ? 100.0 : status.progress_ppm / 10000.0;
 
         std::ostringstream json;
         json << "{\"type\":\"" << (completed ? "completed" : "progress") << "\",\"progress\":{";

@@ -20,7 +20,7 @@ validation remains enabled.
 ## Usage
 
 ```swift
-.package(url: "https://github.com/tryAGI/LibtorrentSDK", exact: "0.2.10")
+.package(url: "https://github.com/tryAGI/LibtorrentSDK", exact: "0.2.11")
 ```
 
 Use `LibtorrentRateLimits` on `LibtorrentJobInput` to constrain native
