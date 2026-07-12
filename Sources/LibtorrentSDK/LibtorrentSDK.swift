@@ -267,6 +267,8 @@ public struct LibtorrentProgress: Sendable, Equatable, Codable {
     public let totalBytes: Int64?
     public let percentComplete: Double?
     public let bytesPerSecond: Double?
+    public let totalBytesPerSecond: Double?
+    public let protocolBytesPerSecond: Double?
     public let peerCount: Int?
     public let swarmDiagnostics: LibtorrentSwarmDiagnostics?
     public let files: [LibtorrentFileInfo]
@@ -280,6 +282,8 @@ public struct LibtorrentProgress: Sendable, Equatable, Codable {
         totalBytes: Int64? = nil,
         percentComplete: Double? = nil,
         bytesPerSecond: Double? = nil,
+        totalBytesPerSecond: Double? = nil,
+        protocolBytesPerSecond: Double? = nil,
         peerCount: Int? = nil,
         swarmDiagnostics: LibtorrentSwarmDiagnostics? = nil,
         files: [LibtorrentFileInfo] = []
@@ -292,6 +296,8 @@ public struct LibtorrentProgress: Sendable, Equatable, Codable {
         self.totalBytes = totalBytes
         self.percentComplete = percentComplete
         self.bytesPerSecond = bytesPerSecond
+        self.totalBytesPerSecond = totalBytesPerSecond
+        self.protocolBytesPerSecond = protocolBytesPerSecond
         self.peerCount = peerCount
         self.swarmDiagnostics = swarmDiagnostics
         self.files = files

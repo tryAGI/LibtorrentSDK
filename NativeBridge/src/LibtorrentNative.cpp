@@ -885,6 +885,15 @@ public:
             }
 
             params.save_path = request.download_directory;
+            const bool awaiting_selection = !request.selection.has_value()
+                && params.ti
+                && params.ti->num_files() > 1;
+            if (awaiting_selection) {
+                params.file_priorities.assign(
+                    static_cast<std::size_t>(params.ti->num_files()),
+                    lt::dont_download
+                );
+            }
             lt::error_code error;
             auto handle = session_.add_torrent(std::move(params), error);
             if (error) {
@@ -1363,6 +1372,9 @@ private:
         json << "\"totalBytes\":" << status.total_wanted << ",";
         json << "\"percentComplete\":" << percent << ",";
         json << "\"bytesPerSecond\":" << status.download_payload_rate << ",";
+        json << "\"totalBytesPerSecond\":" << status.download_rate << ",";
+        json << "\"protocolBytesPerSecond\":"
+             << std::max(0, status.download_rate - status.download_payload_rate) << ",";
         json << "\"peerCount\":" << status.num_peers << ",";
         json << "\"swarmDiagnostics\":";
         emit_swarm_diagnostics_json(json, job_id, handle, status);
